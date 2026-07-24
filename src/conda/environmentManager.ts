@@ -27,7 +27,7 @@ import {
 } from 'vscode';
 
 import { diffEnvironments } from './changes';
-import { CondaClient } from './conda';
+import { CondaClient, type CondaInfo } from './conda';
 import {
   condaPrefixCandidates,
   condaGlobalEnvironmentRoots,
@@ -250,6 +250,7 @@ export class CondaEnvironmentManager
   private protectedRegularPrefixes = new Set<string>();
   private reservedWorkspacePrefixes = new Set<string>();
   private reservedWorkspaceProjectRoots: readonly Uri[] = [];
+  private condaInfo: CondaInfo | undefined;
   private rootPrefix: string | undefined;
   private readonly onDidChangeEnvironmentEmitter =
     new EventEmitter<DidChangeEnvironmentEventArgs>();
@@ -485,7 +486,10 @@ export class CondaEnvironmentManager
       }
     }
 
-    const info = await this.conda.getInfo();
+    const info = this.condaInfo;
+    if (info === undefined) {
+      return undefined;
+    }
     const globalRoots = condaGlobalEnvironmentRoots();
     for (const candidate of condaPrefixCandidates(context.fsPath)) {
       const metadata = await inspectCondaPrefix(candidate, info);
@@ -526,6 +530,7 @@ export class CondaEnvironmentManager
     const scopes = new Map(this.scopeUris);
 
     this.initialization = undefined;
+    this.condaInfo = undefined;
     this.rootPrefix = undefined;
     this.regularEnvironments = [];
     this.regularKindsByPrefix.clear();
@@ -785,6 +790,7 @@ export class CondaEnvironmentManager
       }
     }
     this.routes.replaceAll(nextState.routeEntries);
+    this.condaInfo = nextState.condaInfo;
     this.rootPrefix = nextState.condaInfo.rootPrefix;
     this.regularEnvironments = nextState.regularEnvironments;
     this.regularKindsByPrefix = new Map(nextState.regularKindsByPrefix);

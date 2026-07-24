@@ -262,6 +262,40 @@ test('resolve inspects and retains an unknown conda prefix from its Python execu
   );
 });
 
+test('resolve reuses the conda info collected during refresh', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-resolve-info-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  vscode.__state.files = [];
+  vscode.__state.folders = [];
+  const info = condaInfo(path.join(root, 'base'));
+  let getInfoCalls = 0;
+  const conda = {
+    getInfo: async () => {
+      getInfoCalls += 1;
+      return info;
+    },
+  } as unknown as CondaClient;
+  const workspaces = {} as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([]),
+    conda,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await Promise.all([
+    manager.resolve(vscode.Uri.file(path.join(root, 'first', 'bin', 'python'))),
+    manager.resolve(vscode.Uri.file(path.join(root, 'second', 'bin', 'python'))),
+    manager.resolve(vscode.Uri.file(path.join(root, 'third', 'bin', 'python'))),
+  ]);
+
+  assert.equal(getInfoCalls, 1);
+});
+
 test('quick create uses a project environment file before creating a workspace', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-environment-file-'));
   t.after(() => rm(root, { recursive: true, force: true }));
