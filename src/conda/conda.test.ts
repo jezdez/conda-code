@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 
 import { CondaClient } from './conda';
@@ -186,15 +187,16 @@ test('regular conda installs do not upgrade satisfied specs unless requested', a
 test('environment file creation uses a named target and the project directory', async () => {
   const runner = new RecordingRunner(() => success(''));
   const client = new CondaClient({ runner });
+  const environmentFile = path.resolve('/work/demo/environment.yml');
 
-  await client.createEnvironmentFromFile('/work/demo/environment.yml', 'demo');
+  await client.createEnvironmentFromFile(environmentFile, 'demo');
   assert.deepEqual(runner.calls[0], {
     executable: 'conda',
-    args: ['create', '--yes', '--json', '--name', 'demo', '--file', '/work/demo/environment.yml'],
+    args: ['create', '--yes', '--json', '--name', 'demo', '--file', environmentFile],
     options: {
       signal: undefined,
       maxOutputBytes: 4 * 1024 * 1024,
-      cwd: '/work/demo',
+      cwd: path.dirname(environmentFile),
     },
   });
 });
@@ -202,8 +204,9 @@ test('environment file creation uses a named target and the project directory', 
 test('lockfile creation disables configured default packages', async () => {
   const runner = new RecordingRunner(() => success(''));
   const client = new CondaClient({ runner });
+  const explicitFile = path.resolve('/work/demo/explicit.txt');
 
-  await client.createEnvironmentFromFile('/work/demo/explicit.txt', 'demo', {
+  await client.createEnvironmentFromFile(explicitFile, 'demo', {
     noDefaultPackages: true,
   });
 
@@ -215,7 +218,7 @@ test('lockfile creation disables configured default packages', async () => {
     'demo',
     '--no-default-packages',
     '--file',
-    '/work/demo/explicit.txt',
+    explicitFile,
   ]);
 });
 
