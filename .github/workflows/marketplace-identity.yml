@@ -39,6 +39,8 @@ jobs:
             exit 1
           fi
 
+          echo "::notice title=Marketplace publisher identity::${profile_id}"
+
           {
             echo "### Marketplace publisher identity"
             echo
