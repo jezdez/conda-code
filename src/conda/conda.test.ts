@@ -183,6 +183,42 @@ test('regular conda installs do not upgrade satisfied specs unless requested', a
   ]);
 });
 
+test('environment file creation uses a named target and the project directory', async () => {
+  const runner = new RecordingRunner(() => success(''));
+  const client = new CondaClient({ runner });
+
+  await client.createEnvironmentFromFile('/work/demo/environment.yml', 'demo');
+  assert.deepEqual(runner.calls[0], {
+    executable: 'conda',
+    args: ['create', '--yes', '--json', '--name', 'demo', '--file', '/work/demo/environment.yml'],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: '/work/demo',
+    },
+  });
+});
+
+test('lockfile creation disables configured default packages', async () => {
+  const runner = new RecordingRunner(() => success(''));
+  const client = new CondaClient({ runner });
+
+  await client.createEnvironmentFromFile('/work/demo/explicit.txt', 'demo', {
+    noDefaultPackages: true,
+  });
+
+  assert.deepEqual(runner.calls[0]?.args, [
+    'create',
+    '--yes',
+    '--json',
+    '--name',
+    'demo',
+    '--no-default-packages',
+    '--file',
+    '/work/demo/explicit.txt',
+  ]);
+});
+
 test('regular conda failures retain the command result', async () => {
   const failure: CommandResult = {
     exitCode: 1,

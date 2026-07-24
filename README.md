@@ -1,5 +1,7 @@
 # Conda Code
 
+[![Docs](https://github.com/jezdez/conda-code/actions/workflows/docs.yml/badge.svg)](https://github.com/jezdez/conda-code/actions/workflows/docs.yml)
+
 Conda Code provides conda environment and package management through the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
 It defines its own conda provider for regular environments and adds
@@ -8,6 +10,9 @@ project-aware layer.
 
 The registered environment manager and package manager ID is
 `jezdez.conda-code:conda`.
+
+Read the [Conda Code documentation](https://jezdez.github.io/conda-code/) for
+tutorials, how-to guides, reference material, and explanations.
 
 ## Features
 
@@ -23,14 +28,18 @@ format.
 - Read Python metadata directly from each prefix without starting its interpreter
 - Keep environments without Python visible so they can be repaired or managed
 - Create named environments
-- Create a project environment at `.conda`
+- Create named environments from project-root `environment.yml`,
+  `environment.yaml`, and exact package inputs
+- Create a project `.conda` prefix only when selected explicitly during
+  interactive creation
 - Remove named environments and project `.conda` prefixes while protecting base
-  installations and unowned prefixes
+  installations and other prefix environments
 - List, install, update, and remove packages with the configured conda executable
 - Show conda records, including conda-pypi packages, and omit raw pip-only
   distributions
 - Resolve environments by prefix or Python executable
-- Persist global and project selections
+- Persist the manager-wide and project selections in the current VS Code
+  workspace
 - Run Python directly or activate it with hooks from the configured conda root
 
 ### Conda workspaces
@@ -54,19 +63,31 @@ prefix, environment and package changes use the workspace commands instead of
 the regular conda commands.
 
 When multiple workspace manifests report the same prefix, Conda Code hides that
-prefix and refuses environment or package changes until only one manifest
-reports it.
+prefix. Removal and package operations refuse stale references to that prefix
+until only one manifest reports it.
 
 ## Other tools
 
 ### conda-pypi
 
 [conda-pypi](https://github.com/conda/conda-pypi) packages have ordinary conda
-records, so Conda Code lists and manages them like other conda packages. Conda
-Code does not list raw pip-only distributions.
+records, so Conda Code lists those records with other conda packages. Regular
+package changes continue to use conda. Conda Code does not list raw pip-only
+distributions.
 
 conda-workspaces and conda-pypi handle workspace `[pypi-dependencies]`. Package
 changes from the Python Environments view apply to conda dependencies.
+
+Workspace PyPI dependencies require conda 26.5 or newer, the Rattler solver, the
+`conda-pypi` channel, and flexible channel priority. See the
+[conda-pypi setup](https://conda.github.io/conda-pypi/quickstart/).
+
+### conda-lockfiles
+
+With
+[conda-lockfiles](https://github.com/conda/conda-lockfiles) installed
+in the configured conda base environment, Conda Code can create exact named
+environments from project-root `conda-lock.yml` and `conda-lock.yaml` files.
 
 ### conda-global
 
@@ -104,27 +125,48 @@ project operations.
 
 ## Creation behavior
 
-- Quick create in a normal project creates `conda.toml` and installs the default
+- An existing discovered conda workspace takes precedence over project creation
+  inputs and offers its uninstalled declarations
+- A project-root `environment.yml` or `environment.yaml` is a one-time
+  [CEP 24](https://conda.org/learn/ceps/cep-0024/) input to a regular named
+  environment
+- A project-root `explicit.txt` is an exact
+  [CEP 23](https://conda.org/learn/ceps/cep-0023/) input
+- With conda-lockfiles installed, `conda-lock.yml` and `conda-lock.yaml` are
+  exact inputs
+- Quick Create uses the single recognized input and derives an available name
+  from the project directory
+- Quick Create fails when several recognized inputs exist
+- Interactive creation lets the user choose an input and asks for the
+  environment name
+- Interactive project creation also offers a conda workspace, an explicit
+  project `.conda` prefix, or a named environment
+- Without an input, Quick Create creates `conda.toml` and installs its default
   workspace environment
-- Quick create refuses to add `conda.toml` to a Pixi project when Pixi Code is
+- Quick Create refuses to add `conda.toml` to a Pixi project when Pixi Code is
   installed
-- Create in an existing conda workspace installs a declared environment that is
-  not installed yet
-- Interactive project creation offers a conda workspace, a regular `.conda`
-  prefix, or a named environment
 - Global and multi-project creation creates a named environment
 - Quick global and multi-project creation generates an available name without a
   prompt
-- Quick create and newly declared environments include Python unless the
-  requested package list or existing workspace declaration already contains a
-  Python specification
+- Regular environments created from package selections and new workspaces
+  include Python unless the requested package list already contains a Python
+  specification
+- Adding packages while installing an existing workspace declaration requires
+  zero or one feature
+- Exact inputs refuse additional creation packages and disable configured
+  default packages
+
+For file-based creation, Conda Code runs `conda create --name NAME --file FILE`
+from the project root. The selected name overrides a YAML `name` or `prefix`.
+The input is not watched or synchronized after creation.
 
 ## Execution and activation
 
 Python execution uses the absolute interpreter inside the prefix. For Bash, Zsh,
-POSIX sh, Fish, PowerShell, Git Bash, and Command Prompt, regular environments
-advertise shell-specific activation commands that load hooks from the configured
-conda root before activation. Other shells use direct interpreter execution.
+POSIX sh, Fish, PowerShell Core (`pwsh`), Git Bash, and Command Prompt, regular
+environments advertise shell-specific activation commands that load hooks from
+the configured conda root before activation. Other shells use direct interpreter
+execution.
 
 Workspace environments use direct interpreter execution. Conda Code does not
 advertise `conda workspace shell` as terminal activation because that command
@@ -135,10 +177,13 @@ starts a nested blocking shell.
 - Visual Studio Code 1.118 or newer
 - Python Environments
 - conda 26.3 or newer
-- A local file workspace
+- A trusted VS Code window
+- A local file project registered with Python Environments for workspace
+  and project-input features
 - conda-workspaces 0.7 or newer for workspace features
-- conda-pypi 0.9 or newer and conda-rattler-solver 0.0.6 or newer for workspace
-  PyPI dependencies
+- conda 26.5 or newer for workspace PyPI dependencies
+- conda-lockfiles 0.2 or newer for `conda-lock.yml` and `conda-lock.yaml`
+  creation inputs
 
 Set `conda-code.condaExecutable` when the desired conda is not available through
 `CONDA_EXE`, the Python extension's `python.condaPath` setting, or `PATH`.
@@ -161,6 +206,7 @@ Use the Node.js release pinned in `.nvmrc`.
 npm ci
 npm run typecheck
 npm test
+npm run docs
 ```
 
 Run the `Extension` launch configuration in an Extension Development Host.

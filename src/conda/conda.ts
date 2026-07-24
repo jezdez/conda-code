@@ -1,3 +1,5 @@
+import { dirname, resolve } from 'node:path';
+
 import {
   type CondaInfo,
   type CondaPackageRecord,
@@ -27,6 +29,10 @@ export interface CondaClientOperationOptions {
 
 export interface CondaInstallOptions extends CondaClientOperationOptions {
   readonly upgrade?: boolean;
+}
+
+export interface CondaEnvironmentFileCreateOptions extends CondaClientOperationOptions {
+  readonly noDefaultPackages?: boolean;
 }
 
 export class CondaCommandError extends Error {
@@ -156,6 +162,25 @@ export class CondaClient {
       options,
     );
     return parseCondaMutationPrefix(result.stdout);
+  }
+
+  public async createEnvironmentFromFile(
+    file: string,
+    name: string,
+    options: CondaEnvironmentFileCreateOptions = {},
+  ): Promise<void> {
+    const environmentFile = resolve(requireValue(file, 'file'));
+    const args = [
+      'create',
+      '--yes',
+      '--json',
+      '--name',
+      requireValue(name, 'name'),
+      ...(options.noDefaultPackages === true ? ['--no-default-packages'] : []),
+      '--file',
+      environmentFile,
+    ];
+    await this.runChecked(args, options, dirname(environmentFile));
   }
 
   public async removeEnvironment(

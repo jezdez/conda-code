@@ -61,6 +61,18 @@ import {
 } from './workspaces';
 
 const MANIFEST_NAMES = ['conda.toml', 'pixi.toml', 'pyproject.toml'] as const;
+const PROJECT_ENVIRONMENT_FILE_NAMES = [
+  'environment.yml',
+  'environment.yaml',
+  'explicit.txt',
+  'conda-lock.yml',
+  'conda-lock.yaml',
+] as const;
+const PROJECT_LOCK_FILE_NAMES: ReadonlySet<string> = new Set([
+  'explicit.txt',
+  'conda-lock.yml',
+  'conda-lock.yaml',
+]);
 const MANIFEST_EXCLUDE = '**/{.git,.conda,.pixi,node_modules}/**';
 
 interface DiscoveredWorkspace {
@@ -90,6 +102,15 @@ interface CachedPythonEnvironment {
 
 type CreateKind = 'workspace' | 'prefix' | 'named';
 
+type CreateChoice =
+  | {
+      readonly kind: 'definition-file';
+      readonly definitionFile: Uri;
+    }
+  | {
+      readonly kind: CreateKind;
+    };
+
 export interface CondaEnvironmentManagerOptions {
   readonly log?: LogOutputChannel;
   readonly shouldHandleManifest?: (manifest: Uri) => boolean | Promise<boolean>;
@@ -106,6 +127,30 @@ export class CondaEnvironmentExistsError extends Error {
   public constructor(prefix: string) {
     super(`A file or directory already exists at ${prefix}`);
     this.name = 'CondaEnvironmentExistsError';
+  }
+}
+
+export class CondaEnvironmentDefinitionConflictError extends Error {
+  public constructor(project: string, files: readonly string[]) {
+    super(
+      `Multiple project environment definitions found in ${project}: ${files.join(', ')}. ` +
+        'Use interactive creation to choose one',
+    );
+    this.name = 'CondaEnvironmentDefinitionConflictError';
+  }
+}
+
+export class CondaLockfilePackagesError extends Error {
+  public constructor(file: string) {
+    super(`Additional packages would change the environment locked by ${file}`);
+    this.name = 'CondaLockfilePackagesError';
+  }
+}
+
+export class CondaCreatedEnvironmentNotFoundError extends Error {
+  public constructor(name: string) {
+    super(`Conda created ${name}, but it was not reported by conda info`);
+    this.name = 'CondaCreatedEnvironmentNotFoundError';
   }
 }
 
@@ -233,8 +278,8 @@ export class CondaEnvironmentManager
 
   public quickCreateConfig() {
     return {
-      description: 'Create a conda workspace with Python',
-      detail: 'Creates conda.toml and installs its default environment',
+      description: 'Create a conda environment for this project',
+      detail: 'Uses a project environment definition when present, otherwise creates conda.toml',
     };
   }
 
@@ -268,18 +313,27 @@ export class CondaEnvironmentManager
       return undefined;
     }
 
+    const definitionFiles = await this.findProjectDefinitionFiles(projectUri);
     const canCreateWorkspace = await this.canCreateWorkspace(projectUri);
-    if (options.quickCreate === true && !canCreateWorkspace) {
+    if (options.quickCreate === true && definitionFiles.length === 0 && !canCreateWorkspace) {
       throw new CondaWorkspaceCreationError(projectUri.fsPath);
     }
-    const kind = await this.selectCreateKind(options.quickCreate, canCreateWorkspace);
-    if (kind === undefined) {
+    const choice = await this.selectCreateChoice(
+      options.quickCreate,
+      canCreateWorkspace,
+      projectUri,
+      definitionFiles,
+    );
+    if (choice === undefined) {
       return undefined;
     }
-    if (kind === 'workspace') {
+    if (choice.kind === 'definition-file') {
+      return this.createFromProjectDefinition(projectUri, choice.definitionFile, options);
+    }
+    if (choice.kind === 'workspace') {
       return this.createWorkspace(projectUri, options);
     }
-    if (kind === 'prefix') {
+    if (choice.kind === 'prefix') {
       return this.createProjectPrefix(projectUri, options);
     }
     return this.createNamedEnvironment(projectUri, options);
@@ -1135,41 +1189,102 @@ export class CondaEnvironmentManager
     return selected?.environment;
   }
 
-  private async selectCreateKind(
+  private async selectCreateChoice(
     quickCreate: boolean | undefined,
     canCreateWorkspace: boolean,
-  ): Promise<CreateKind | undefined> {
+    projectUri: Uri,
+    definitionFiles: readonly Uri[],
+  ): Promise<CreateChoice | undefined> {
     if (quickCreate === true) {
-      return 'workspace';
+      if (definitionFiles.length > 1) {
+        throw new CondaEnvironmentDefinitionConflictError(
+          projectUri.fsPath,
+          definitionFiles.map((file) => path.basename(file.fsPath)),
+        );
+      }
+      const definitionFile = definitionFiles[0];
+      return definitionFile === undefined
+        ? { kind: 'workspace' }
+        : { kind: 'definition-file', definitionFile };
     }
     const choices: {
       readonly label: string;
       readonly description: string;
-      readonly createKind: CreateKind;
+      readonly choice: CreateChoice;
     }[] = [];
+    for (const definitionFile of definitionFiles) {
+      const name = path.basename(definitionFile.fsPath);
+      choices.push({
+        label: name,
+        description: 'Create a regular named conda environment from this file',
+        choice: { kind: 'definition-file', definitionFile },
+      });
+    }
     if (canCreateWorkspace) {
       choices.push({
         label: 'Conda workspace',
         description: 'Create conda.toml and a managed project environment',
-        createKind: 'workspace',
+        choice: { kind: 'workspace' },
       });
     }
     choices.push(
       {
         label: 'Project prefix',
         description: 'Create a regular conda environment at .conda',
-        createKind: 'prefix',
+        choice: { kind: 'prefix' },
       },
       {
         label: 'Named environment',
         description: 'Create a regular named conda environment',
-        createKind: 'named',
+        choice: { kind: 'named' },
       },
     );
     const selected = await window.showQuickPick(choices, {
       placeHolder: 'Choose how Conda Code should create the environment',
     });
-    return selected?.createKind;
+    return selected?.choice;
+  }
+
+  private async findProjectDefinitionFiles(projectUri: Uri): Promise<Uri[]> {
+    const files: Uri[] = [];
+    for (const name of PROJECT_ENVIRONMENT_FILE_NAMES) {
+      const candidate = Uri.file(path.join(projectUri.fsPath, name));
+      if (await pathExists(candidate.fsPath)) {
+        files.push(candidate);
+      }
+    }
+    return files;
+  }
+
+  private async createFromProjectDefinition(
+    projectUri: Uri,
+    definitionFile: Uri,
+    options: CreateEnvironmentOptions,
+  ): Promise<PythonEnvironment | undefined> {
+    const additionalPackages = (options.additionalPackages ?? []).filter(
+      (spec) => spec.trim() !== '',
+    );
+    const filename = path.basename(definitionFile.fsPath).toLowerCase();
+    if (PROJECT_LOCK_FILE_NAMES.has(filename) && additionalPackages.length > 0) {
+      throw new CondaLockfilePackagesError(filename);
+    }
+    const name = await this.selectNamedEnvironmentName(projectUri, options.quickCreate === true);
+    if (name === undefined) {
+      return undefined;
+    }
+    await this.conda.createEnvironmentFromFile(definitionFile.fsPath, name, {
+      noDefaultPackages: PROJECT_LOCK_FILE_NAMES.has(filename),
+    });
+    await this.refresh(projectUri);
+    const created = this.getNamedEnvironment(name);
+    if (created === undefined) {
+      throw new CondaCreatedEnvironmentNotFoundError(name);
+    }
+    if (additionalPackages.length > 0) {
+      await this.conda.installPackages(created.environmentPath.fsPath, additionalPackages);
+      await this.refresh(projectUri);
+    }
+    return this.getEnvironmentForPrefix(created.environmentPath.fsPath) ?? created;
   }
 
   private async canCreateWorkspace(projectUri: Uri): Promise<boolean> {
@@ -1230,26 +1345,7 @@ export class CondaEnvironmentManager
     projectUri: Uri | undefined,
     options: CreateEnvironmentOptions,
   ): Promise<PythonEnvironment | undefined> {
-    const suggested = (projectUri === undefined ? 'conda-env' : path.basename(projectUri.fsPath))
-      .replace(/[^A-Za-z0-9._-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    const name =
-      options.quickCreate === true
-        ? this.availableNamedEnvironmentName(suggested || 'conda-env')
-        : await window.showInputBox({
-            title: 'Create named conda environment',
-            prompt: 'Environment name',
-            value: suggested || 'conda-env',
-            validateInput: (value) => {
-              const normalized = value.trim();
-              if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(normalized)) {
-                return 'Use letters, numbers, dots, underscores, and hyphens';
-              }
-              return ['base', 'root'].includes(normalized.toLowerCase())
-                ? `The name ${normalized} is reserved`
-                : undefined;
-            },
-          });
+    const name = await this.selectNamedEnvironmentName(projectUri, options.quickCreate === true);
     if (name === undefined) {
       return undefined;
     }
@@ -1258,26 +1354,59 @@ export class CondaEnvironmentManager
     return this.getEnvironmentForPrefix(prefix);
   }
 
+  private async selectNamedEnvironmentName(
+    projectUri: Uri | undefined,
+    quickCreate: boolean,
+  ): Promise<string | undefined> {
+    const suggested = (projectUri === undefined ? 'conda-env' : path.basename(projectUri.fsPath))
+      .replace(/[^A-Za-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const fallback = suggested || 'conda-env';
+    const name = quickCreate
+      ? this.availableNamedEnvironmentName(fallback)
+      : await window.showInputBox({
+          title: 'Create named conda environment',
+          prompt: 'Environment name',
+          value: fallback,
+          validateInput: (value) => {
+            const normalized = value.trim();
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(normalized)) {
+              return 'Use letters, numbers, dots, underscores, and hyphens';
+            }
+            if (['base', 'root'].includes(normalized.toLowerCase())) {
+              return `The name ${normalized} is reserved`;
+            }
+            return this.namedEnvironmentNameUsed(normalized)
+              ? `A named conda environment called ${normalized} already exists`
+              : undefined;
+          },
+        });
+    return name?.trim();
+  }
+
   private availableNamedEnvironmentName(suggested: string): string {
-    const used = new Set(
-      this.regularEnvironments
-        .filter(
-          (environment) =>
-            this.regularKindsByPrefix.get(
-              normalizeEnvironmentPath(environment.environmentPath.fsPath),
-            ) === 'named',
-        )
-        .map((environment) => environment.name.toLowerCase()),
-    );
-    if (!used.has(suggested.toLowerCase())) {
+    if (!this.namedEnvironmentNameUsed(suggested)) {
       return suggested;
     }
     for (let suffix = 1; ; suffix += 1) {
       const candidate = `${suggested}-${suffix}`;
-      if (!used.has(candidate.toLowerCase())) {
+      if (!this.namedEnvironmentNameUsed(candidate)) {
         return candidate;
       }
     }
+  }
+
+  private namedEnvironmentNameUsed(name: string): boolean {
+    return this.getNamedEnvironment(name) !== undefined;
+  }
+
+  private getNamedEnvironment(name: string): PythonEnvironment | undefined {
+    return this.regularEnvironments.find(
+      (environment) =>
+        this.regularKindsByPrefix.get(
+          normalizeEnvironmentPath(environment.environmentPath.fsPath),
+        ) === 'named' && environment.name.toLowerCase() === name.toLowerCase(),
+    );
   }
 
   private projectUriForCreation(scope: Uri): Uri | undefined {

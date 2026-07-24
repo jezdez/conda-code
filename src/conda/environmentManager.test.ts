@@ -262,6 +262,180 @@ test('resolve inspects and retains an unknown conda prefix from its Python execu
   );
 });
 
+test('quick create uses a project environment file before creating a workspace', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-environment-file-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const environmentFile = path.join(projectPath, 'environment.yml');
+  const envsDir = path.join(root, 'envs');
+  const existingPrefix = path.join(envsDir, 'project');
+  const prefix = path.join(envsDir, 'project-1');
+  await mkdir(projectPath);
+  await mkdir(path.join(existingPrefix, 'conda-meta'), { recursive: true });
+  await writeFile(environmentFile, 'name: demo\ndependencies:\n  - pytest\n');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(environmentFile)];
+  vscode.__state.folders = [{ uri: project }];
+  let info = {
+    ...condaInfo(path.join(root, 'base'), [existingPrefix], envsDir),
+    envsDetails: { [existingPrefix]: { name: 'project' } },
+  };
+  let createdFrom: string | undefined;
+  let createdName: string | undefined;
+  let disabledDefaultPackages: boolean | undefined;
+  const installed: { prefix: string; specs: readonly string[] }[] = [];
+  const conda = {
+    getInfo: async () => info,
+    createEnvironmentFromFile: async (
+      file: string,
+      name: string,
+      options: { readonly noDefaultPackages?: boolean },
+    ) => {
+      createdFrom = file;
+      createdName = name;
+      disabledDefaultPackages = options.noDefaultPackages;
+      await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+      info = {
+        ...info,
+        envs: [existingPrefix, prefix],
+        envsDetails: {
+          [existingPrefix]: { name: 'project' },
+          [prefix]: { name: 'project-1' },
+        },
+      };
+    },
+    installPackages: async (target: string, specs: readonly string[]) => {
+      installed.push({ prefix: target, specs });
+    },
+  } as unknown as CondaClient;
+  let workspaceCreations = 0;
+  const workspaces = {
+    quickstart: async () => {
+      workspaceCreations += 1;
+      throw new Error('workspace quickstart should not run');
+    },
+  } as unknown as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    conda,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  const created = await manager.create(project, {
+    quickCreate: true,
+    additionalPackages: ['ruff'],
+  });
+
+  assert.equal(createdFrom, environmentFile);
+  assert.equal(createdName, 'project-1');
+  assert.equal(disabledDefaultPackages, false);
+  assert.equal(created?.environmentPath.fsPath, prefix);
+  assert.equal(created?.version, 'no-python');
+  assert.deepEqual(installed, [{ prefix, specs: ['ruff'] }]);
+  assert.equal(workspaceCreations, 0);
+});
+
+test('quick create uses a CEP 23 explicit file without changing the lock', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-explicit-file-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const explicitFile = path.join(projectPath, 'explicit.txt');
+  const envsDir = path.join(root, 'envs');
+  const prefix = path.join(envsDir, 'project');
+  await mkdir(projectPath);
+  await writeFile(explicitFile, '@EXPLICIT\nhttps://example.invalid/python.tar.bz2\n');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(explicitFile)];
+  vscode.__state.folders = [{ uri: project }];
+  let info = condaInfo(path.join(root, 'base'), [], envsDir);
+  let createCalls = 0;
+  const conda = {
+    getInfo: async () => info,
+    createEnvironmentFromFile: async (
+      file: string,
+      name: string,
+      options: { readonly noDefaultPackages?: boolean },
+    ) => {
+      createCalls += 1;
+      assert.equal(file, explicitFile);
+      assert.equal(name, 'project');
+      assert.equal(options.noDefaultPackages, true);
+      await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+      info = {
+        ...info,
+        envs: [prefix],
+        envsDetails: { [prefix]: { name: 'project' } },
+      };
+    },
+  } as unknown as CondaClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    conda,
+    {} as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await assert.rejects(
+    manager.create(project, {
+      quickCreate: true,
+      additionalPackages: ['ruff'],
+    }),
+    environmentManager.CondaLockfilePackagesError,
+  );
+  assert.equal(createCalls, 0);
+
+  const created = await manager.create(project, { quickCreate: true });
+  assert.equal(created?.environmentPath.fsPath, prefix);
+  assert.equal(createCalls, 1);
+});
+
+test('quick create rejects multiple project environment inputs', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-environment-inputs-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const environmentFile = path.join(projectPath, 'environment.yaml');
+  const lockFile = path.join(projectPath, 'conda-lock.yml');
+  await mkdir(projectPath);
+  await writeFile(environmentFile, 'dependencies:\n  - python\n');
+  await writeFile(lockFile, 'version: 1\nmetadata: {}\npackage: []\n');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(environmentFile), vscode.Uri.file(lockFile)];
+  vscode.__state.folders = [{ uri: project }];
+  let createCalls = 0;
+  const conda = {
+    getInfo: async () => condaInfo(path.join(root, 'base')),
+    createEnvironmentFromFile: async () => {
+      createCalls += 1;
+      throw new Error('environment creation should not run');
+    },
+  } as unknown as CondaClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    conda,
+    {} as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await assert.rejects(
+    manager.create(project, { quickCreate: true }),
+    environmentManager.CondaEnvironmentDefinitionConflictError,
+  );
+  assert.equal(createCalls, 0);
+});
+
 test('partial workspace failure retains the failed sibling and drops a healthy deletion', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-snapshot-'));
   t.after(() => rm(root, { recursive: true, force: true }));

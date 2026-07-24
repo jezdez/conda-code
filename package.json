@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "jezdez",
   "license": "BSD-3-Clause",
-  "homepage": "https://github.com/jezdez/conda-code#readme",
+  "homepage": "https://jezdez.github.io/conda-code/",
   "bugs": {
     "url": "https://github.com/jezdez/conda-code/issues"
   },
@@ -74,6 +74,7 @@
     "vscode:prepublish": "npm run package",
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "compile": "npm run clean && tsc",
+    "docs": "pixi run -e docs docs",
     "package": "npm run compile",
     "vsix": "vsce package --out dist/conda-code.vsix",
     "typecheck": "tsc --noEmit",
