@@ -17,6 +17,7 @@ import {
   isRemovableManagedProjectPrefix,
   pythonExecutablePath,
 } from './prefixes';
+import { normalizeEnvironmentPath } from './workspaceRouting';
 
 function info(rootPrefix: string, envsDir: string): CondaInfo {
   return {
@@ -140,7 +141,7 @@ test('isRemovableManagedProjectPrefix rejects a symlinked .conda prefix', async 
 test('conda-global uses its configured root', () => {
   const home = path.resolve('/home/person');
   const roots = condaGlobalEnvironmentRoots({ CONDA_GLOBAL_HOME: '~/tools' }, home);
-  assert.deepEqual(roots, [path.join(home, 'tools', 'envs')]);
+  assert.deepEqual(roots, [normalizeEnvironmentPath(path.join(home, 'tools', 'envs'))]);
   assert.equal(isCondaGlobalPrefix(path.join(home, 'tools', 'envs', 'ruff'), roots), true);
   assert.equal(isCondaGlobalPrefix(path.join(home, '.cg', 'envs', 'gh'), roots), false);
   assert.equal(isCondaGlobalPrefix(path.join(home, '.conda', 'envs', 'project'), roots), false);
@@ -151,7 +152,9 @@ test('conda-global keeps legacy installs on the legacy root', async (t) => {
   t.after(() => rm(home, { recursive: true, force: true }));
   await mkdir(path.join(home, '.cg'));
 
-  assert.deepEqual(condaGlobalEnvironmentRoots({}, home), [path.join(home, '.cg', 'envs')]);
+  assert.deepEqual(condaGlobalEnvironmentRoots({}, home), [
+    normalizeEnvironmentPath(path.join(home, '.cg', 'envs')),
+  ]);
 });
 
 test('conda-global resolves a configured symlink', async (t) => {
