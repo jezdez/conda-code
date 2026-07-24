@@ -12,4 +12,9 @@
 - Retain unaffected environments when one workspace environment cannot be inspected
 - Add bounded, shell-free conda command execution with option-delimited specs
 - List conda-pypi records while omitting raw pip records
+- Create regular named environments from project-root `environment.yml`,
+  `environment.yaml`, CEP 23 explicit specifications, and conda-lockfiles inputs
+- Add MyST and Sphinx Design documentation organized with Diátaxis and published
+  through GitHub Pages
+- Add secretless, tag-gated GitHub and Visual Studio Marketplace releases
 - Add parser, command, environment lifecycle, and package cache tests

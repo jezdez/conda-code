@@ -1,0 +1,48 @@
+name: Marketplace identity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Show Marketplace identity
+    runs-on: ubuntu-latest
+    environment: vscode-marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Sign in to Microsoft Entra
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Show Azure DevOps profile ID
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          profile_id="$(
+            az rest \
+              --url https://app.vssps.visualstudio.com/_apis/profile/profiles/me \
+              --resource 499b84ac-1321-427f-aa17-267ca6975798 \
+              --query id \
+              --output tsv
+          )"
+          if [ -z "$profile_id" ]; then
+            echo "Azure DevOps did not return a profile ID." >&2
+            exit 1
+          fi
+
+          {
+            echo "### Marketplace publisher identity"
+            echo
+            echo "Add this Azure DevOps profile ID as a Contributor to the \`jezdez\` publisher:"
+            echo
+            echo "\`${profile_id}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -50,11 +50,11 @@ workspace's conda dependencies.
 
 Project-root `conda-lock.yml` and `conda-lock.yaml` inputs require
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) 0.2 or
-newer in the configured conda base environment.
+newer in the configured conda base environment. Follow the
+[conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
+using the channels configured for your conda distribution.
 
-```console
-conda install --name base conda-forge::conda-lockfiles
-```
+(source-build)=
 
 ## Source build
 

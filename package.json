@@ -3,6 +3,7 @@
   "displayName": "Conda Code",
   "description": "Conda environments, workspaces, and package management for Visual Studio Code.",
   "version": "0.1.0",
+  "private": true,
   "publisher": "jezdez",
   "license": "BSD-3-Clause",
   "homepage": "https://jezdez.github.io/conda-code/",

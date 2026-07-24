@@ -43,17 +43,18 @@ tool environments, and coexist with Pixi Code.
 
 ::::
 
-## Install from source
+## Install
 
-Build and install a VSIX from the repository:
+Install
+[Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
+or run:
 
 ```console
-git clone https://github.com/jezdez/conda-code.git
-cd conda-code
-npm ci
-npm run vsix
-code --install-extension dist/conda-code.vsix
+code --install-extension jezdez.conda-code
 ```
+
+Python Environments is installed as an extension dependency. To build Conda
+Code from source, see {ref}`source-build`.
 
 Open the Python Environments view and select **Conda Code**. See the
 [](quickstart.md) for the complete setup.
@@ -106,7 +107,7 @@ plugins fit together.
 :link: changelog
 :link-type: doc
 
-Read the changelog, license, and source repository.
+Read the changelog, release process, license, and source repository.
 :::
 
 ::::
@@ -167,5 +168,6 @@ Ecosystem fit <explanation/ecosystem>
 :caption: Project
 
 changelog
+releasing
 license
 ```

@@ -6,12 +6,9 @@ environments.
 ## 1. Prepare conda
 
 Conda Code requires conda 26.3 or newer. Install conda-workspaces in the same
-base environment to enable workspace support.
-
-```console
-conda activate base
-conda install -c conda-forge "conda>=26.3" "conda-workspaces>=0.7"
-```
+base environment to enable workspace support. Update conda through the channels
+configured for your distribution, then follow the
+[conda-workspaces installation instructions](https://conda-incubator.github.io/conda-workspaces/quickstart/#installation).
 
 Confirm that the commands Conda Code uses are available:
 
@@ -22,17 +19,15 @@ conda workspace --help
 
 ## 2. Install Conda Code
 
-Build and install the VSIX:
+Install
+[Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
+or run:
 
 ```console
-git clone https://github.com/jezdez/conda-code.git
-cd conda-code
-npm ci
-npm run vsix
-code --install-extension dist/conda-code.vsix
+code --install-extension jezdez.conda-code
 ```
 
-The VSIX declares Python Environments as an extension dependency.
+Python Environments is installed as an extension dependency.
 
 ## 3. Select the provider
 

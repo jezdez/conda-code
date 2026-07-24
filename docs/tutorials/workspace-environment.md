@@ -23,14 +23,15 @@ The manifest starts with the same basic shape as:
 ```toml
 [workspace]
 name = "example"
-channels = ["conda-forge"]
+channels = ["CONFIGURED_CHANNEL"]
 platforms = ["linux-64", "osx-arm64", "win-64"]
 
 [dependencies]
 python = "*"
 ```
 
-The exact platforms come from conda-workspaces.
+The channel and exact platforms come from the configured conda installation and
+conda-workspaces.
 
 ## Add a dependency
 

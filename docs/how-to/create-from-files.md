@@ -50,11 +50,9 @@ operation instead of changing the exact input.
 
 Install
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) 0.2 or
-newer in the configured conda base environment:
-
-```console
-conda install --name base conda-forge::conda-lockfiles
-```
+newer in the configured conda base environment. Follow the
+[conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
+using the channels configured for your conda distribution.
 
 Put `conda-lock.yml` or `conda-lock.yaml` at the project root, then create the
 environment through Quick Create or interactive creation.

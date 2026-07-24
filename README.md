@@ -14,6 +14,18 @@ The registered environment manager and package manager ID is
 Read the [Conda Code documentation](https://jezdez.github.io/conda-code/) for
 tutorials, how-to guides, reference material, and explanations.
 
+## Install
+
+Install
+[Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
+or run:
+
+```console
+code --install-extension jezdez.conda-code
+```
+
+Python Environments is installed as an extension dependency.
+
 ## Features
 
 ### Regular conda environments
@@ -88,6 +100,9 @@ With
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) installed
 in the configured conda base environment, Conda Code can create exact named
 environments from project-root `conda-lock.yml` and `conda-lock.yaml` files.
+Follow the
+[conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
+using the channels configured for your conda distribution.
 
 ### conda-global
 

@@ -20,8 +20,6 @@ Create `environment.yml` at the project root:
 
 ```yaml
 name: ignored-by-conda-code
-channels:
-  - conda-forge
 dependencies:
   - python
   - pytest
@@ -30,7 +28,7 @@ dependencies:
 The file follows
 [CEP 24](https://conda.org/learn/ceps/cep-0024/). Conda Code supplies the
 environment name itself, so the `name` in the file does not control the created
-environment.
+environment. Conda uses the channels configured for the selected installation.
 
 ## Create the environment
 
