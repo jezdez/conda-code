@@ -53,7 +53,3 @@ html_extra_path = ["robots.txt"]
 sitemap_url_scheme = "{link}"
 
 exclude_patterns = ["_build"]
-
-linkcheck_ignore = [
-    r"^https://marketplace\.visualstudio\.com/items\?itemName=jezdez\.conda-code$",
-]
