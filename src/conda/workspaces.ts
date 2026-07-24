@@ -1,85 +1,41 @@
 import { dirname, posix, resolve, win32 } from 'node:path';
 
+import { CondaClient, type CondaClientOperationOptions, requireValue } from './conda';
 import {
-  type CondaInfo,
-  parseCondaInfo,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
-  parseWorkspaceTaskList,
   type WorkspaceEnvironment,
   type WorkspaceEnvironmentInfo,
   type WorkspaceInfo,
   type WorkspacePackage,
   type WorkspaceQuickstartResult,
-  type WorkspaceTaskList,
 } from './parsers';
-import {
-  type CommandResult,
-  type CommandRunner,
-  DEFAULT_MAX_OUTPUT_BYTES,
-  type RunCommandOptions,
-  SpawnCommandRunner,
-} from './runner';
+import { type CommandResult } from './runner';
 
 export type {
-  CondaInfo,
   WorkspaceEnvironment,
   WorkspaceEnvironmentInfo,
   WorkspaceInfo,
   WorkspacePackage,
   WorkspaceQuickstartResult,
-  WorkspaceTask,
-  WorkspaceTaskList,
 } from './parsers';
+export { CondaCommandError } from './conda';
 
-export interface CondaOperationOptions {
-  readonly signal?: AbortSignal;
-}
-
-export interface CondaWorkspacesClientOptions {
-  readonly runner?: CommandRunner;
-  readonly condaExecutable?: string;
-  readonly maxOutputBytes?: number;
-}
-
-export interface InstallEnvironmentOptions extends CondaOperationOptions {
-  readonly forceReinstall?: boolean;
-  readonly locked?: boolean;
-  readonly frozen?: boolean;
-  readonly noLock?: boolean;
-}
+export type CondaOperationOptions = CondaClientOperationOptions;
 
 export type WorkspaceManifestFormat = 'conda' | 'pixi' | 'pyproject';
 
 export interface QuickstartOptions extends CondaOperationOptions {
   readonly specs?: readonly string[];
-  readonly environment?: string;
   readonly format?: WorkspaceManifestFormat;
-  readonly name?: string;
-  readonly channels?: readonly string[];
-  readonly platforms?: readonly string[];
-  readonly forceReinstall?: boolean;
-  readonly locked?: boolean;
-  readonly frozen?: boolean;
 }
 
 export interface DependencyChangeOptions extends CondaOperationOptions {
-  readonly environment?: string;
   readonly feature?: string;
-  readonly pypi?: boolean;
   readonly noInstall?: boolean;
-  readonly noLockfileUpdate?: boolean;
-  readonly forceReinstall?: boolean;
-}
-
-export interface RunTaskOptions extends CondaOperationOptions {
-  readonly environment?: string;
-  readonly cleanEnvironment?: boolean;
-  readonly skipDependencies?: boolean;
-  readonly taskCwd?: string;
 }
 
 export interface WorkspacePython {
@@ -89,58 +45,18 @@ export interface WorkspacePython {
 
 export interface InstalledWorkspaceEnvironment extends WorkspaceEnvironmentInfo {
   readonly features: readonly string[];
-  readonly packages: readonly WorkspacePackage[];
   readonly python: WorkspacePython | null;
 }
 
-export class CondaCommandError extends Error {
-  public readonly executable: string;
-  public readonly args: readonly string[];
-  public readonly result: CommandResult;
-
-  public constructor(executable: string, args: readonly string[], result: CommandResult) {
-    const detail =
-      structuredError(result.stdout) ??
-      firstLine(result.stderr) ??
-      firstLine(result.stdout) ??
-      `exit code ${result.exitCode}`;
-    super(`${executable} failed with ${detail}`);
-    this.name = 'CondaCommandError';
-    this.executable = executable;
-    this.args = args;
-    this.result = result;
-  }
+export interface FailedWorkspaceEnvironmentDiscovery {
+  readonly environmentName: string;
+  readonly prefix?: string;
+  readonly error: unknown;
 }
 
-function structuredError(text: string): string | undefined {
-  try {
-    const value = JSON.parse(text) as unknown;
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      return undefined;
-    }
-    const record = value as Record<string, unknown>;
-    for (const key of ['message', 'error']) {
-      const detail = record[key];
-      if (typeof detail === 'string' && detail.trim() !== '') {
-        return detail.trim().slice(0, 500);
-      }
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
-}
-
-function firstLine(text: string): string | undefined {
-  const line = text.split(/\r?\n/, 1)[0]?.trim().slice(0, 500);
-  return line === '' ? undefined : line;
-}
-
-function requireValue(value: string, label: string): string {
-  if (value.trim() === '') {
-    throw new TypeError(`${label} must not be empty`);
-  }
-  return value;
+export interface InstalledWorkspaceEnvironmentDiscovery {
+  readonly environments: readonly InstalledWorkspaceEnvironment[];
+  readonly failures: readonly FailedWorkspaceEnvironmentDiscovery[];
 }
 
 function absoluteManifestPath(manifest: string): string {
@@ -153,25 +69,7 @@ function pythonExecutable(prefix: string, condaPlatform: string): string {
     : posix.join(prefix, 'bin', 'python');
 }
 
-export class CondaWorkspacesClient {
-  private readonly runner: CommandRunner;
-  private readonly condaExecutable: string;
-  private readonly maxOutputBytes: number;
-
-  public constructor(options: CondaWorkspacesClientOptions = {}) {
-    this.runner = options.runner ?? new SpawnCommandRunner();
-    this.condaExecutable = requireValue(options.condaExecutable ?? 'conda', 'condaExecutable');
-    this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
-    if (!Number.isSafeInteger(this.maxOutputBytes) || this.maxOutputBytes <= 0) {
-      throw new RangeError('maxOutputBytes must be a positive safe integer');
-    }
-  }
-
-  public async getCondaInfo(options: CondaOperationOptions = {}): Promise<CondaInfo> {
-    const result = await this.runChecked(['info', '--json'], options);
-    return parseCondaInfo(result.stdout);
-  }
-
+export class CondaWorkspacesClient extends CondaClient {
   public async getWorkspaceInfo(
     manifest: string,
     options: CondaOperationOptions = {},
@@ -214,75 +112,74 @@ export class CondaWorkspacesClient {
     return parseWorkspacePackages(result.stdout);
   }
 
-  public async listTasks(
-    manifest: string,
-    options: CondaOperationOptions = {},
-  ): Promise<WorkspaceTaskList> {
-    const manifestPath = absoluteManifestPath(manifest);
-    const result = await this.runChecked(
-      ['task', '--file', manifestPath, 'list', '--json'],
-      options,
-      dirname(manifestPath),
-    );
-    return parseWorkspaceTaskList(result.stdout);
-  }
-
   public async discoverInstalledEnvironments(
     manifest: string,
+    condaPlatform: string,
     options: CondaOperationOptions = {},
-  ): Promise<readonly InstalledWorkspaceEnvironment[]> {
-    const [condaInfo, environments] = await Promise.all([
-      this.getCondaInfo(options),
-      this.listEnvironments(manifest, options),
-    ]);
-
-    return Promise.all(
-      environments
-        .filter((environment) => environment.installed)
-        .map(async (environment) => {
-          const [info, packages] = await Promise.all([
-            this.getEnvironmentInfo(manifest, environment.name, options),
-            this.listPackages(manifest, environment.name, options),
-          ]);
-          const pythonPackage = packages.find(
-            (workspacePackage) => workspacePackage.name.toLocaleLowerCase() === 'python',
-          );
+  ): Promise<InstalledWorkspaceEnvironmentDiscovery> {
+    const platform = requireValue(condaPlatform, 'condaPlatform');
+    const environments = (await this.listEnvironments(manifest, options)).filter(
+      (environment) => environment.installed,
+    );
+    const results = await Promise.all(
+      environments.map(async (environment) => {
+        const [infoResult, packagesResult] = await Promise.allSettled([
+          this.getEnvironmentInfo(manifest, environment.name, options),
+          this.listPackages(manifest, environment.name, options),
+        ]);
+        if (infoResult.status === 'rejected') {
           return {
+            failure: {
+              environmentName: environment.name,
+              error: infoResult.reason,
+            },
+          };
+        }
+        if (packagesResult.status === 'rejected') {
+          return {
+            failure: {
+              environmentName: environment.name,
+              prefix: infoResult.value.prefix,
+              error: packagesResult.reason,
+            },
+          };
+        }
+
+        const info = infoResult.value;
+        const pythonPackage = packagesResult.value.find(
+          (workspacePackage) => workspacePackage.name.toLowerCase() === 'python',
+        );
+        return {
+          environment: {
             ...info,
             features: environment.features,
-            packages,
             python:
               pythonPackage === undefined
                 ? null
                 : {
                     version: pythonPackage.version,
-                    executable: pythonExecutable(info.prefix, condaInfo.platform),
+                    executable: pythonExecutable(info.prefix, platform),
                   },
-          };
-        }),
+          },
+        };
+      }),
     );
+    return {
+      environments: results.flatMap((result) =>
+        result.environment === undefined ? [] : [result.environment],
+      ),
+      failures: results.flatMap((result) => (result.failure === undefined ? [] : [result.failure])),
+    };
   }
 
   public installEnvironment(
     manifest: string,
     environment?: string,
-    options: InstallEnvironmentOptions = {},
+    options: CondaOperationOptions = {},
   ): Promise<CommandResult> {
     const args = ['install', '--yes'];
     if (environment !== undefined) {
       args.push('-e', requireValue(environment, 'environment'));
-    }
-    if (options.forceReinstall === true) {
-      args.push('--force-reinstall');
-    }
-    if (options.locked === true) {
-      args.push('--locked');
-    }
-    if (options.frozen === true) {
-      args.push('--frozen');
-    }
-    if (options.noLock === true) {
-      args.push('--no-lock');
     }
     return this.runWorkspace(manifest, args, options);
   }
@@ -304,29 +201,8 @@ export class CondaWorkspacesClient {
     options: QuickstartOptions = {},
   ): Promise<WorkspaceQuickstartResult> {
     const args = ['workspace', 'quickstart', '--yes', '--json', '--no-shell'];
-    if (options.environment !== undefined) {
-      args.push('-e', requireValue(options.environment, 'environment'));
-    }
     if (options.format !== undefined) {
       args.push('--format', options.format);
-    }
-    if (options.name !== undefined) {
-      args.push('--name', requireValue(options.name, 'name'));
-    }
-    for (const channel of options.channels ?? []) {
-      args.push('--channel', requireValue(channel, 'channel'));
-    }
-    for (const platform of options.platforms ?? []) {
-      args.push('--platform', requireValue(platform, 'platform'));
-    }
-    if (options.forceReinstall === true) {
-      args.push('--force-reinstall');
-    }
-    if (options.locked === true) {
-      args.push('--locked');
-    }
-    if (options.frozen === true) {
-      args.push('--frozen');
     }
     if ((options.specs?.length ?? 0) > 0) {
       args.push('--', ...(options.specs ?? []));
@@ -345,68 +221,15 @@ export class CondaWorkspacesClient {
     specs: readonly string[],
     options: DependencyChangeOptions = {},
   ): Promise<CommandResult> {
-    return this.changeDependencies('add', manifest, specs, options);
-  }
-
-  public removeDependencies(
-    manifest: string,
-    specs: readonly string[],
-    options: DependencyChangeOptions = {},
-  ): Promise<CommandResult> {
-    return this.changeDependencies('remove', manifest, specs, options);
-  }
-
-  public runTask(
-    manifest: string,
-    task: string,
-    taskArgs: readonly string[] = [],
-    options: RunTaskOptions = {},
-  ): Promise<CommandResult> {
-    const manifestPath = absoluteManifestPath(manifest);
-    const args = ['task', '--file', manifestPath, 'run'];
-    if (options.environment !== undefined) {
-      args.push('-e', requireValue(options.environment, 'environment'));
-    }
-    if (options.cleanEnvironment === true) {
-      args.push('--clean-env');
-    }
-    if (options.skipDependencies === true) {
-      args.push('--skip-deps');
-    }
-    if (options.taskCwd !== undefined) {
-      args.push('--cwd', resolve(options.taskCwd));
-    }
-    args.push('--', requireValue(task, 'task'), ...taskArgs);
-    return this.runChecked(args, options, dirname(manifestPath));
-  }
-
-  private changeDependencies(
-    action: 'add' | 'remove',
-    manifest: string,
-    specs: readonly string[],
-    options: DependencyChangeOptions,
-  ): Promise<CommandResult> {
     if (specs.length === 0) {
       throw new TypeError('specs must contain at least one dependency');
     }
-    const args = [action, '--yes'];
-    if (options.environment !== undefined) {
-      args.push('-e', requireValue(options.environment, 'environment'));
-    }
+    const args = ['add', '--yes'];
     if (options.feature !== undefined) {
       args.push('--feature', requireValue(options.feature, 'feature'));
     }
-    if (options.pypi === true) {
-      args.push('--pypi');
-    }
     if (options.noInstall === true) {
       args.push('--no-install');
-    }
-    if (options.noLockfileUpdate === true) {
-      args.push('--no-lockfile-update');
-    }
-    if (options.forceReinstall === true) {
-      args.push('--force-reinstall');
     }
     args.push('--', ...specs);
     return this.runWorkspace(manifest, args, options);
@@ -423,22 +246,5 @@ export class CondaWorkspacesClient {
       options,
       dirname(manifestPath),
     );
-  }
-
-  private async runChecked(
-    args: readonly string[],
-    options: CondaOperationOptions,
-    cwd?: string,
-  ): Promise<CommandResult> {
-    const runnerOptions: RunCommandOptions = {
-      signal: options.signal,
-      maxOutputBytes: this.maxOutputBytes,
-      ...(cwd === undefined ? {} : { cwd }),
-    };
-    const result = await this.runner.run(this.condaExecutable, args, runnerOptions);
-    if (result.exitCode !== 0) {
-      throw new CondaCommandError(this.condaExecutable, args, result);
-    }
-    return result;
   }
 }

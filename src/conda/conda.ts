@@ -12,7 +12,6 @@ import {
   type RunCommandOptions,
   SpawnCommandRunner,
 } from './runner';
-import { CondaCommandError } from './workspaces';
 
 export type { CondaInfo, CondaPackageRecord } from './parsers';
 
@@ -30,7 +29,50 @@ export interface CondaInstallOptions extends CondaClientOperationOptions {
   readonly upgrade?: boolean;
 }
 
-function requireValue(value: string, label: string): string {
+export class CondaCommandError extends Error {
+  public readonly executable: string;
+  public readonly args: readonly string[];
+  public readonly result: CommandResult;
+
+  public constructor(executable: string, args: readonly string[], result: CommandResult) {
+    const detail =
+      structuredError(result.stdout) ??
+      firstLine(result.stderr) ??
+      firstLine(result.stdout) ??
+      `exit code ${result.exitCode}`;
+    super(`${executable} failed with ${detail}`);
+    this.name = 'CondaCommandError';
+    this.executable = executable;
+    this.args = args;
+    this.result = result;
+  }
+}
+
+function structuredError(text: string): string | undefined {
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of ['message', 'error']) {
+      const detail = record[key];
+      if (typeof detail === 'string' && detail.trim() !== '') {
+        return detail.trim().slice(0, 500);
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function firstLine(text: string): string | undefined {
+  const line = text.split(/\r?\n/, 1)[0]?.trim().slice(0, 500);
+  return line === '' ? undefined : line;
+}
+
+export function requireValue(value: string, label: string): string {
   const normalized = value.trim();
   if (normalized === '') {
     throw new TypeError(`${label} must not be empty`);
@@ -65,7 +107,7 @@ export class CondaClient {
     return parseCondaInfo(result.stdout);
   }
 
-  public async listPackages(
+  public async listPrefixPackages(
     prefix: string,
     options: CondaClientOperationOptions = {},
   ): Promise<readonly CondaPackageRecord[]> {
@@ -156,13 +198,15 @@ export class CondaClient {
     );
   }
 
-  private async runChecked(
+  protected async runChecked(
     args: readonly string[],
     options: CondaClientOperationOptions,
+    cwd?: string,
   ): Promise<CommandResult> {
     const runOptions: RunCommandOptions = {
       signal: options.signal,
       maxOutputBytes: this.maxOutputBytes,
+      ...(cwd === undefined ? {} : { cwd }),
     };
     const result = await this.runner.run(this.condaExecutable, args, runOptions);
     if (result.exitCode !== 0) {

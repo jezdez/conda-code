@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 export function isPixiProjectManifest(filePath: string, contents?: string): boolean {
-  const name = path.basename(filePath).toLocaleLowerCase();
+  const name = path.basename(filePath).toLowerCase();
   if (name === 'pixi.toml') {
     return true;
   }

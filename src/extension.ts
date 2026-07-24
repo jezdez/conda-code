@@ -68,7 +68,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
           if (isPixiProjectManifest(manifest.fsPath)) {
             return false;
           }
-          if (!manifest.fsPath.toLocaleLowerCase().endsWith('pyproject.toml')) {
+          if (!manifest.fsPath.toLowerCase().endsWith('pyproject.toml')) {
             return true;
           }
           try {
@@ -157,8 +157,4 @@ export async function activate(context: ExtensionContext): Promise<void> {
   );
 
   await refresh();
-}
-
-export function deactivate(): void {
-  // VS Code disposes the extension context subscriptions.
 }

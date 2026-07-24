@@ -7,24 +7,24 @@ import test from 'node:test';
 import type { CondaInfo } from './parsers';
 import {
   condaGlobalEnvironmentRoots,
+  condaPrefixCandidates,
   inspectCondaPrefix,
   isCondaGlobalPrefix,
   isManagedProjectPrefix,
   isPathWithin,
   isPixiEnvironmentPrefix,
+  isRemovableCondaPrefix,
+  isRemovableManagedProjectPrefix,
   pythonExecutablePath,
 } from './prefixes';
 
 function info(rootPrefix: string, envsDir: string): CondaInfo {
   return {
     platform: 'linux-64',
-    condaVersion: '26.5.3',
     rootPrefix,
-    condaPrefix: rootPrefix,
     envsDirs: [envsDir],
     defaultPrefix: rootPrefix,
     activePrefix: null,
-    activePrefixName: null,
     envs: [rootPrefix],
     envsDetails: {},
   };
@@ -111,12 +111,39 @@ test('prefix path helpers handle Windows and containment boundaries', () => {
   assert.equal(isManagedProjectPrefix('/work/demo/.conda/envs/default', '/work/demo'), false);
 });
 
+test('condaPrefixCandidates accepts prefixes and standard Python executables', () => {
+  const prefix = path.resolve('/work/demo/.conda');
+  const python = path.join(prefix, 'bin', 'python');
+  const versionedPython = path.join(prefix, 'bin', 'python3.13');
+
+  assert.deepEqual(condaPrefixCandidates(prefix), [prefix]);
+  assert.deepEqual(condaPrefixCandidates(python), [python, prefix]);
+  assert.deepEqual(condaPrefixCandidates(versionedPython), [versionedPython, prefix]);
+});
+
+test('isRemovableManagedProjectPrefix rejects a symlinked .conda prefix', async (t) => {
+  const project = await mkdtemp(path.join(tmpdir(), 'conda-code-project-prefix-'));
+  t.after(() => rm(project, { recursive: true, force: true }));
+  const target = path.join(project, 'target');
+  const prefix = path.join(project, '.conda');
+  await mkdir(target);
+  await symlink(target, prefix, process.platform === 'win32' ? 'junction' : 'dir');
+
+  assert.equal(await isRemovableCondaPrefix(prefix), false);
+  assert.equal(await isRemovableManagedProjectPrefix(prefix, project), false);
+  await rm(prefix);
+  await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+  assert.equal(await isRemovableCondaPrefix(prefix), true);
+  assert.equal(await isRemovableManagedProjectPrefix(prefix, project), true);
+});
+
 test('conda-global uses its configured root', () => {
-  const roots = condaGlobalEnvironmentRoots({ CONDA_GLOBAL_HOME: '~/tools' }, '/home/person');
-  assert.deepEqual(roots, ['/home/person/tools/envs']);
-  assert.equal(isCondaGlobalPrefix('/home/person/tools/envs/ruff', roots), true);
-  assert.equal(isCondaGlobalPrefix('/home/person/.cg/envs/gh', roots), false);
-  assert.equal(isCondaGlobalPrefix('/home/person/.conda/envs/project', roots), false);
+  const home = path.resolve('/home/person');
+  const roots = condaGlobalEnvironmentRoots({ CONDA_GLOBAL_HOME: '~/tools' }, home);
+  assert.deepEqual(roots, [path.join(home, 'tools', 'envs')]);
+  assert.equal(isCondaGlobalPrefix(path.join(home, 'tools', 'envs', 'ruff'), roots), true);
+  assert.equal(isCondaGlobalPrefix(path.join(home, '.cg', 'envs', 'gh'), roots), false);
+  assert.equal(isCondaGlobalPrefix(path.join(home, '.conda', 'envs', 'project'), roots), false);
 });
 
 test('conda-global keeps legacy installs on the legacy root', async (t) => {

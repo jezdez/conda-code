@@ -27,8 +27,8 @@ format.
 - Remove named environments and project `.conda` prefixes while protecting base
   installations and unowned prefixes
 - List, install, update, and remove packages with the configured conda executable
-- Show conda-owned records, including conda-pypi packages, without claiming raw
-  pip-only distributions
+- Show conda records, including conda-pypi packages, and omit raw pip-only
+  distributions
 - Resolve environments by prefix or Python executable
 - Persist global and project selections
 - Run Python directly or activate it with hooks from the configured conda root
@@ -43,54 +43,50 @@ format.
 - Install declared environments and clean their prefixes without deleting the
   manifest declaration
 - Create a new `conda.toml` project through quick create
-- List packages and change direct conda dependencies through the workspace CLI
+- List installed packages and distinguish direct from transitive dependencies
+- Add conda dependencies for environments backed by zero or one feature
+- Refuse workspace dependency removal, package upgrades, and additions to
+  composite environments
 - Refresh when a manifest or `conda.lock` changes
 
-Workspace metadata is an overlay on the regular conda provider. A normalized
-prefix has one Conda Code identity. When exactly one workspace owns that prefix,
-workspace lifecycle and dependency operations take precedence over regular conda
-environment removal and package changes.
+Conda Code publishes each prefix once. When exactly one workspace reports a
+prefix, environment and package changes use the workspace commands instead of
+the regular conda commands.
 
-When multiple workspace manifests claim the same prefix, Conda Code withholds
-that prefix and refuses lifecycle or package mutations until ownership is
-unambiguous.
+When multiple workspace manifests report the same prefix, Conda Code hides that
+prefix and refuses environment or package changes until only one manifest
+reports it.
 
-## Ownership boundaries
+## Other tools
 
 ### conda-pypi
 
-[conda-pypi](https://github.com/conda/conda-pypi) composes with Conda Code through
-the configured conda installation. Its primary workflow produces ordinary conda
-records, so those packages remain visible and manageable through the regular
-conda CLI. Raw pip-only distributions are outside this package manager.
+[conda-pypi](https://github.com/conda/conda-pypi) packages have ordinary conda
+records, so Conda Code lists and manages them like other conda packages. Conda
+Code does not list raw pip-only distributions.
 
-For workspace `[pypi-dependencies]`, Conda Code leaves resolution and installation
-to conda-workspaces and conda-pypi. Package changes initiated from the Python
-Environments view target conda dependencies.
+conda-workspaces and conda-pypi handle workspace `[pypi-dependencies]`. Package
+changes from the Python Environments view apply to conda dependencies.
 
 ### conda-global
 
-[conda-global](https://github.com/conda-incubator/conda-global) owns persistent
-isolated tool environments and PATH trampolines. Conda Code follows
-conda-global's precedence and does not publish prefixes below its active
-environment root:
+[conda-global](https://github.com/conda-incubator/conda-global) manages isolated
+tool environments and PATH trampolines. Conda Code skips prefixes below its
+active environment root:
 
 1. `$CONDA_GLOBAL_HOME/envs` when configured
 2. `~/.conda/global/envs` after migration or for a new installation
 3. `~/.cg/envs` for an existing legacy installation
-
-This keeps tool installation and removal under conda-global.
 
 ### Pixi Code
 
 Conda Code and
 [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
 can be installed together. Conda Code excludes `.pixi/envs` from regular conda
-discovery. When Pixi Code is installed, Conda Code also leaves `pixi.toml` and
-`[tool.pixi]` projects to Pixi Code while continuing to own `conda.toml` and
-non-Pixi conda-workspaces projects.
-
-The extensions are not declared incompatible.
+discovery. When Pixi Code is installed, Conda Code ignores `pixi.toml` and
+`[tool.pixi]` projects during workspace discovery and does not create
+`conda.toml` in those projects. It continues to handle `conda.toml` and other
+conda-workspaces projects.
 
 ## Python Environments built-in conda provider
 
@@ -100,16 +96,18 @@ extension to replace, hide, or disable that manager, and it does not deduplicate
 prefixes across managers.
 
 Conda Code does not call or delegate to that implementation. Until Python
-Environments adds a provider replacement or ownership API, both conda provider
-branches can appear in the environment view. Select `jezdez.conda-code:conda` as
-`python-envs.defaultEnvManager` or as the `envManager` for a
-`python-envs.pythonProjects` entry to route project operations through Conda
-Code.
+Environments allows another extension to replace the built-in provider, both
+conda branches can appear in the environment view. Select
+`jezdez.conda-code:conda` as `python-envs.defaultEnvManager` or as the
+`envManager` for a `python-envs.pythonProjects` entry to use Conda Code for
+project operations.
 
 ## Creation behavior
 
 - Quick create in a normal project creates `conda.toml` and installs the default
   workspace environment
+- Quick create refuses to add `conda.toml` to a Pixi project when Pixi Code is
+  installed
 - Create in an existing conda workspace installs a declared environment that is
   not installed yet
 - Interactive project creation offers a conda workspace, a regular `.conda`
@@ -163,7 +161,6 @@ Use the Node.js release pinned in `.nvmrc`.
 npm ci
 npm run typecheck
 npm test
-npm run compile
 ```
 
 Run the `Extension` launch configuration in an Extension Development Host.

@@ -11,7 +11,6 @@ import {
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
-  parseWorkspaceTaskList,
 } from './parsers';
 
 test('parseCondaInfo normalizes the conda JSON fields', () => {
@@ -36,13 +35,10 @@ test('parseCondaInfo normalizes the conda JSON fields', () => {
 
   assert.deepEqual(info, {
     platform: 'osx-arm64',
-    condaVersion: '26.5.3',
     rootPrefix: '/opt/conda',
-    condaPrefix: '/opt/conda',
     envsDirs: ['/opt/conda/envs'],
     defaultPrefix: '/opt/conda',
     activePrefix: null,
-    activePrefixName: null,
     envs: ['/opt/conda', '/work/.conda/envs/default'],
     envsDetails: {
       '/opt/conda': { name: 'base' },
@@ -87,27 +83,21 @@ test('parseCondaMutationPrefix accepts current and legacy conda result shapes', 
   );
 });
 
-test('parseWorkspaceInfo preserves lockfile status details', () => {
+test('parseWorkspaceInfo reads only fields used by discovery', () => {
   const info = parseWorkspaceInfo(
     JSON.stringify({
       manifest: '/work/conda.toml',
       name: 'demo',
-      version: '1.0',
-      description: 'Demo workspace',
-      channels: ['conda-forge'],
-      platforms: ['osx-arm64'],
-      known_platforms: ['osx-arm64', 'linux-64'],
-      environments: ['default', 'test'],
-      features: ['test'],
-      lockfile_status: 'out-of-date',
-      lockfile_reason: 'dependency changed',
+      version: 1,
+      channels: 'ignored',
+      lockfile_status: null,
     }),
   );
 
-  assert.equal(info.lockfileStatus, 'out-of-date');
-  assert.equal(info.lockfileReason, 'dependency changed');
-  assert.deepEqual(info.environments, ['default', 'test']);
-  assert.deepEqual(info.knownPlatforms, ['osx-arm64', 'linux-64']);
+  assert.deepEqual(info, {
+    manifest: '/work/conda.toml',
+    name: 'demo',
+  });
 });
 
 test('parseWorkspaceEnvironments parses installed state and features', () => {
@@ -125,27 +115,25 @@ test('parseWorkspaceEnvironments parses installed state and features', () => {
   );
 });
 
-test('parseWorkspaceEnvironmentInfo handles installed package counts', () => {
+test('parseWorkspaceEnvironmentInfo reads route and dependency fields', () => {
   const info = parseWorkspaceEnvironmentInfo(
     JSON.stringify({
       name: 'default',
       prefix: '/work/.conda/envs/default',
-      installed: true,
-      channels: ['conda-forge'],
-      platforms: ['osx-arm64'],
-      channel_priority: 'strict',
       conda_dependencies: { python: 'python >=3.12', numpy: 'numpy' },
-      pypi_dependencies: { click: 'click>=8' },
-      packages_installed: 42,
+      installed: 'ignored',
+      channels: null,
+      pypi_dependencies: false,
     }),
   );
 
-  assert.equal(info.prefix, '/work/.conda/envs/default');
-  assert.equal(info.channelPriority, 'strict');
-  assert.equal(info.packageCount, 42);
-  assert.deepEqual(info.condaDependencies, {
-    python: 'python >=3.12',
-    numpy: 'numpy',
+  assert.deepEqual(info, {
+    name: 'default',
+    prefix: '/work/.conda/envs/default',
+    condaDependencies: {
+      python: 'python >=3.12',
+      numpy: 'numpy',
+    },
   });
 });
 
@@ -164,42 +152,7 @@ test('parseWorkspacePackages parses package records', () => {
   );
 });
 
-test('parseWorkspaceTaskList normalizes commands, aliases, and sources', () => {
-  const result = parseWorkspaceTaskList(
-    JSON.stringify({
-      file: '/work/conda.toml',
-      tasks: {
-        lint: {
-          name: 'lint',
-          cmd: ['ruff', 'check', '.'],
-          description: 'Lint',
-          source: 'user',
-        },
-        check: {
-          name: 'check',
-          depends_on: ['lint', 'test'],
-          alias: true,
-        },
-      },
-    }),
-  );
-
-  assert.deepEqual(result.tasks.lint, {
-    name: 'lint',
-    command: ['ruff', 'check', '.'],
-    description: 'Lint',
-    dependsOn: [],
-    alias: false,
-    source: 'user',
-  });
-  assert.deepEqual(result.tasks.check, {
-    name: 'check',
-    dependsOn: ['lint', 'test'],
-    alias: true,
-  });
-});
-
-test('parseWorkspaceQuickstartResult normalizes its payload', () => {
+test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {
   assert.deepEqual(
     parseWorkspaceQuickstartResult(
       JSON.stringify({
@@ -211,11 +164,8 @@ test('parseWorkspaceQuickstartResult normalizes its payload', () => {
       }),
     ),
     {
-      workspace: '/work/demo',
       environment: 'default',
       manifest: 'conda.toml',
-      specsAdded: ['python=3.12'],
-      shellSpawned: false,
     },
   );
 });

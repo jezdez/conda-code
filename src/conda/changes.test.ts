@@ -11,18 +11,22 @@ function environment(id: string): PythonEnvironment {
   } as PythonEnvironment;
 }
 
-function pkg(name: string, version: string, build: string, isTransitive = false): Package {
+function pkg(
+  name: string,
+  version: string,
+  build: string,
+  dependencyKind = 'Direct dependency',
+): Package {
   return {
     name,
     displayName: name,
     version,
-    description: `Build ${build}`,
+    description: `Build ${build}, ${dependencyKind}`,
     pkgId: {
       id: name,
       managerId: 'jezdez.conda-code:conda',
       environmentId: '/workspace/.conda/envs/default',
     },
-    isTransitive,
   } as Package;
 }
 
@@ -38,8 +42,8 @@ test('diffEnvironments reports environment ID additions and removals', () => {
 });
 
 test('diffPackages reports direct dependency classification changes', () => {
-  const before = pkg('numpy', '2.3.1', 'py313_1', true);
-  const after = pkg('numpy', '2.3.1', 'py313_1', false);
+  const before = pkg('numpy', '2.3.1', 'py313_1', 'Transitive dependency');
+  const after = pkg('numpy', '2.3.1', 'py313_1');
 
   assert.deepEqual(diffPackages([before], [after]), [
     { kind: 'remove', pkg: before },

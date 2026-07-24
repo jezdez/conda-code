@@ -40,12 +40,7 @@ export function diffEnvironments(
 }
 
 function packageFingerprint(pkg: Package): string {
-  return JSON.stringify([
-    pkg.name,
-    pkg.version,
-    pkg.description,
-    (pkg as Package & { readonly isTransitive?: boolean }).isTransitive,
-  ]);
+  return JSON.stringify([pkg.name, pkg.version, pkg.description, pkg.tooltip]);
 }
 
 export function diffPackages(

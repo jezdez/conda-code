@@ -76,7 +76,7 @@ test('regular conda reads use the configured executable and JSON contracts', asy
   });
 
   const info = await client.getInfo();
-  const packages = await client.listPackages('/envs/a path');
+  const packages = await client.listPrefixPackages('/envs/a path');
 
   assert.equal(info.rootPrefix, '/opt/conda');
   assert.deepEqual(packages, [
@@ -122,7 +122,7 @@ test('regular conda reads exclude pip loaders and preserve conda-pypi records', 
   );
   const client = new CondaClient({ runner });
 
-  assert.deepEqual(await client.listPackages('/envs/demo'), [
+  assert.deepEqual(await client.listPrefixPackages('/envs/demo'), [
     {
       name: 'conda-pypi-package',
       version: '1.0',

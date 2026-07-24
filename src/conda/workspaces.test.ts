@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import test from 'node:test';
 
 import { type CommandResult, type CommandRunner, type RunCommandOptions } from './runner';
@@ -39,20 +40,6 @@ function success(value: unknown = ''): CommandResult {
   };
 }
 
-function condaInfo(platform = 'linux-64'): object {
-  return {
-    platform,
-    conda_version: '26.5.3',
-    root_prefix: '/opt/conda',
-    conda_prefix: '/opt/conda',
-    envs_dirs: ['/opt/conda/envs'],
-    default_prefix: '/opt/conda',
-    active_prefix: null,
-    active_prefix_name: null,
-    envs: [],
-  };
-}
-
 function environmentInfo(name: string, prefix: string, packageCount: number): object {
   return {
     name,
@@ -68,7 +55,8 @@ function environmentInfo(name: string, prefix: string, packageCount: number): ob
 }
 
 test('read methods issue the documented JSON commands', async () => {
-  const manifest = '/work/project/conda.toml';
+  const manifest = path.resolve('/work/project/conda.toml');
+  const prefix = path.resolve('/work/.conda/default');
   const runner = new RecordingRunner((_executable, args) => {
     const command = args.join(' ');
     if (command.endsWith('info --json')) {
@@ -89,13 +77,10 @@ test('read methods issue the documented JSON commands', async () => {
       return success([{ name: 'default', features: [], installed: true }]);
     }
     if (command.endsWith('info -e default --json')) {
-      return success(environmentInfo('default', '/work/.conda/default', 2));
+      return success(environmentInfo('default', prefix, 2));
     }
     if (command.endsWith('list -e default --json')) {
       return success([{ name: 'python', version: '3.12.12', build: 'h123_0' }]);
-    }
-    if (command.startsWith('task ')) {
-      return success({ file: manifest, tasks: {} });
     }
     throw new Error(`Unexpected command: ${command}`);
   });
@@ -109,7 +94,6 @@ test('read methods issue the documented JSON commands', async () => {
   await client.listEnvironments(manifest);
   await client.getEnvironmentInfo(manifest, 'default');
   await client.listPackages(manifest, 'default');
-  await client.listTasks(manifest);
 
   assert.deepEqual(
     runner.calls.map(({ executable, args, options }) => ({
@@ -122,31 +106,25 @@ test('read methods issue the documented JSON commands', async () => {
       {
         executable: '/custom/conda',
         args: ['workspace', '--file', manifest, 'info', '--json'],
-        cwd: '/work/project',
+        cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
         executable: '/custom/conda',
         args: ['workspace', '--file', manifest, 'envs', '--json'],
-        cwd: '/work/project',
+        cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
         executable: '/custom/conda',
         args: ['workspace', '--file', manifest, 'info', '-e', 'default', '--json'],
-        cwd: '/work/project',
+        cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
         executable: '/custom/conda',
         args: ['workspace', '--file', manifest, 'list', '-e', 'default', '--json'],
-        cwd: '/work/project',
-        maxOutputBytes: 1024,
-      },
-      {
-        executable: '/custom/conda',
-        args: ['task', '--file', manifest, 'list', '--json'],
-        cwd: '/work/project',
+        cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
     ],
@@ -154,12 +132,12 @@ test('read methods issue the documented JSON commands', async () => {
 });
 
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
-  const manifest = '/work/project/conda.toml';
+  const manifest = path.resolve('/work/project/conda.toml');
+  const defaultPrefix = path.resolve('/work/.conda/default');
+  const docsPrefix = path.resolve('/work/.conda/docs');
+  const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
   const runner = new RecordingRunner((_executable, args) => {
     const command = args.join(' ');
-    if (command === 'info --json') {
-      return success(condaInfo());
-    }
     if (command.endsWith('envs --json')) {
       return success([
         { name: 'default', features: [], installed: true },
@@ -168,7 +146,7 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
       ]);
     }
     if (command.endsWith('info -e default --json')) {
-      return success(environmentInfo('default', '/work/.conda/default', 2));
+      return success(environmentInfo('default', defaultPrefix, 2));
     }
     if (command.endsWith('list -e default --json')) {
       return success([
@@ -177,7 +155,7 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
       ]);
     }
     if (command.endsWith('info -e docs --json')) {
-      return success(environmentInfo('docs', '/work/.conda/docs', 1));
+      return success(environmentInfo('docs', docsPrefix, 1));
     }
     if (command.endsWith('list -e docs --json')) {
       return success([{ name: 'sphinx', version: '8.2.0', build: 'pyhd8ed1ab_0' }]);
@@ -186,12 +164,17 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
   });
   const client = new CondaWorkspacesClient({ runner });
 
-  const environments = await client.discoverInstalledEnvironments(manifest);
+  const discovery = await client.discoverInstalledEnvironments(manifest, condaPlatform);
+  const environments = discovery.environments;
 
   assert.equal(environments.length, 2);
+  assert.deepEqual(discovery.failures, []);
   assert.deepEqual(environments[0]?.python, {
     version: '3.12.12',
-    executable: '/work/.conda/default/bin/python',
+    executable:
+      process.platform === 'win32'
+        ? path.join(defaultPrefix, 'python.exe')
+        : path.join(defaultPrefix, 'bin', 'python'),
   });
   assert.equal(environments[1]?.python, null);
   assert.deepEqual(environments[1]?.features, ['docs']);
@@ -201,47 +184,67 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
   );
 });
 
+test('discoverInstalledEnvironments retains healthy siblings when one environment fails', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const defaultPrefix = path.resolve('/work/.conda/default');
+  const brokenPrefix = path.resolve('/work/.conda/broken');
+  const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
+  const runner = new RecordingRunner((_executable, args) => {
+    const command = args.join(' ');
+    if (command.endsWith('envs --json')) {
+      return success([
+        { name: 'default', features: [], installed: true },
+        { name: 'broken', features: ['broken'], installed: true },
+      ]);
+    }
+    if (command.endsWith('info -e default --json')) {
+      return success(environmentInfo('default', defaultPrefix, 1));
+    }
+    if (command.endsWith('list -e default --json')) {
+      return success([{ name: 'python', version: '3.13.5', build: 'h1_0' }]);
+    }
+    if (command.endsWith('info -e broken --json')) {
+      return success(environmentInfo('broken', brokenPrefix, 1));
+    }
+    if (command.endsWith('list -e broken --json')) {
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'broken prefix',
+      };
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  const client = new CondaWorkspacesClient({ runner });
+
+  const discovery = await client.discoverInstalledEnvironments(manifest, condaPlatform);
+
+  assert.deepEqual(
+    discovery.environments.map(({ name }) => name),
+    ['default'],
+  );
+  assert.equal(discovery.failures.length, 1);
+  assert.equal(discovery.failures[0]?.environmentName, 'broken');
+  assert.equal(discovery.failures[0]?.prefix, brokenPrefix);
+  assert.ok(discovery.failures[0]?.error instanceof CondaCommandError);
+});
+
 test('mutation methods build scoped, non-interactive commands', async () => {
-  const manifest = '/work/project/conda.toml';
+  const manifest = path.resolve('/work/project/conda.toml');
   const runner = new RecordingRunner(() => success());
   const client = new CondaWorkspacesClient({ runner });
 
-  await client.installEnvironment(manifest, 'test', {
-    forceReinstall: true,
-    locked: true,
-  });
+  await client.installEnvironment(manifest, 'test');
   await client.cleanEnvironment(manifest, 'test');
   await client.addDependencies(manifest, ['pytest>=9'], {
-    environment: 'test',
     noInstall: true,
-  });
-  await client.addDependencies(manifest, ['rich>=14'], {
-    environment: 'test',
-    pypi: true,
-  });
-  await client.removeDependencies(manifest, ['pytest'], {
-    environment: 'test',
-    noLockfileUpdate: true,
-  });
-  await client.runTask(manifest, 'check', ['--verbose'], {
-    environment: 'test',
-    skipDependencies: true,
+    feature: 'test',
   });
 
   assert.deepEqual(
     runner.calls.map(({ args }) => args),
     [
-      [
-        'workspace',
-        '--file',
-        manifest,
-        'install',
-        '--yes',
-        '-e',
-        'test',
-        '--force-reinstall',
-        '--locked',
-      ],
+      ['workspace', '--file', manifest, 'install', '--yes', '-e', 'test'],
       ['workspace', '--file', manifest, 'clean', '--yes', '-e', 'test'],
       [
         'workspace',
@@ -249,31 +252,18 @@ test('mutation methods build scoped, non-interactive commands', async () => {
         manifest,
         'add',
         '--yes',
-        '-e',
+        '--feature',
         'test',
         '--no-install',
         '--',
         'pytest>=9',
       ],
-      ['workspace', '--file', manifest, 'add', '--yes', '-e', 'test', '--pypi', '--', 'rich>=14'],
-      [
-        'workspace',
-        '--file',
-        manifest,
-        'remove',
-        '--yes',
-        '-e',
-        'test',
-        '--no-lockfile-update',
-        '--',
-        'pytest',
-      ],
-      ['task', '--file', manifest, 'run', '-e', 'test', '--skip-deps', '--', 'check', '--verbose'],
     ],
   );
 });
 
 test('quickstart runs in the target directory and parses its JSON result', async () => {
+  const workspaceDirectory = path.resolve('/work/new');
   const runner = new RecordingRunner(() =>
     success({
       workspace: '/work/new',
@@ -285,14 +275,15 @@ test('quickstart runs in the target directory and parses its JSON result', async
   );
   const client = new CondaWorkspacesClient({ runner });
 
-  const result = await client.quickstart('/work/new', {
+  const result = await client.quickstart(workspaceDirectory, {
     specs: ['python=3.12', 'numpy'],
-    name: 'demo',
-    channels: ['conda-forge'],
-    platforms: ['linux-64'],
+    format: 'conda',
   });
 
-  assert.deepEqual(result.specsAdded, ['python=3.12', 'numpy']);
+  assert.deepEqual(result, {
+    environment: 'default',
+    manifest: 'conda.toml',
+  });
   assert.deepEqual(runner.calls[0], {
     executable: 'conda',
     args: [
@@ -301,12 +292,8 @@ test('quickstart runs in the target directory and parses its JSON result', async
       '--yes',
       '--json',
       '--no-shell',
-      '--name',
-      'demo',
-      '--channel',
-      'conda-forge',
-      '--platform',
-      'linux-64',
+      '--format',
+      'conda',
       '--',
       'python=3.12',
       'numpy',
@@ -314,7 +301,7 @@ test('quickstart runs in the target directory and parses its JSON result', async
     options: {
       signal: undefined,
       maxOutputBytes: 4 * 1024 * 1024,
-      cwd: '/work/new',
+      cwd: workspaceDirectory,
     },
   });
 });

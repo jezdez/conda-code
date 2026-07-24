@@ -5,7 +5,7 @@ import test from 'node:test';
 import type { PythonEnvironment } from '@vscode/python-environments';
 import type { Memento, Uri } from 'vscode';
 
-import { CondaSelectionState, CondaWorkspaceSelectionState } from './selectionState';
+import { CondaSelectionState } from './selectionState';
 import {
   CompositeWorkspaceEnvironmentError,
   CondaWorkspaceRoute,
@@ -39,21 +39,6 @@ function memory(): Memento {
   } as Memento;
 }
 
-test('selection state persists only project environment prefixes', async () => {
-  const state = memory();
-  const project = uri('/work/demo');
-  const selections = new CondaWorkspaceSelectionState(state);
-
-  await selections.set(project, '/work/demo/.conda/envs/default');
-  assert.equal(
-    await new CondaWorkspaceSelectionState(state).get(project),
-    '/work/demo/.conda/envs/default',
-  );
-
-  await selections.set(project, undefined);
-  assert.equal(await selections.get(project), undefined);
-});
-
 test('general selection state supports global and project selections', async () => {
   const state = memory();
   const project = uri('/work/demo');
@@ -62,12 +47,13 @@ test('general selection state supports global and project selections', async () 
   await selections.set(undefined, '/opt/conda');
   await selections.set(project, '/opt/conda/envs/demo');
 
-  assert.equal(await selections.get(undefined), '/opt/conda');
-  assert.equal(await selections.get(project), '/opt/conda/envs/demo');
-  assert.deepEqual(await selections.entries(), {
+  assert.deepEqual(await new CondaSelectionState(state).entries(), {
     global: '/opt/conda',
     [project.toString(true)]: '/opt/conda/envs/demo',
   });
+
+  await selections.set(project, undefined);
+  assert.deepEqual(await selections.entries(), { global: '/opt/conda' });
 });
 
 test('route registry resolves prefixes and Python executables privately', () => {
@@ -82,7 +68,7 @@ test('route registry resolves prefixes and Python executables privately', () => 
     prefix: path.resolve('/work/demo/.conda/envs/default'),
     pythonPath: path.resolve('/work/demo/.conda/envs/default/bin/python'),
   };
-  registry.replaceProject(project, [route]);
+  registry.replaceAll([route]);
 
   const environment = {
     environmentPath: uri(route.prefix),
@@ -94,7 +80,7 @@ test('route registry resolves prefixes and Python executables privately', () => 
   assert.equal(registry.getRoute(environment), route);
   assert.equal(registry.getRouteByContext(uri(route.pythonPath)), route);
 
-  registry.replaceProject(project, []);
+  registry.replaceAll([]);
   assert.equal(registry.getRoute(environment), undefined);
 });
 
@@ -117,11 +103,14 @@ test('route registry leaves multiply claimed prefixes unowned', () => {
   };
 
   registry.replaceAll([first, second]);
-  assert.equal(registry.getRouteByPrefix(sharedPrefix), undefined);
+  const environment = {
+    environmentPath: uri(sharedPrefix),
+  } as PythonEnvironment;
+  assert.equal(registry.getRoute(environment), undefined);
   assert.equal(registry.isConflictedPrefix(sharedPrefix), true);
 
   registry.replaceAll([first]);
-  assert.equal(registry.getRouteByPrefix(sharedPrefix), first);
+  assert.equal(registry.getRoute(environment), first);
   assert.equal(registry.isConflictedPrefix(sharedPrefix), false);
 });
 
@@ -176,7 +165,10 @@ test('a failed claimant keeps a shared prefix conflicted', () => {
   registry.replaceAll([...claims.values()].flat());
 
   assert.equal(registry.isConflictedPrefix(sharedPrefix), true);
-  assert.equal(registry.getRouteByPrefix(sharedPrefix), undefined);
+  assert.equal(
+    registry.getRoute({ environmentPath: uri(sharedPrefix) } as PythonEnvironment),
+    undefined,
+  );
 });
 
 test('dependency feature routing is deterministic and rejects composites', () => {

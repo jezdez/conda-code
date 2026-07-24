@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CommandCancelledError, CommandOutputLimitError, SpawnCommandRunner } from './runner';
+import {
+  CommandCancelledError,
+  CommandOutputLimitError,
+  CommandSpawnError,
+  CommandTerminatedError,
+  SpawnCommandRunner,
+} from './runner';
 
 test('SpawnCommandRunner captures stdout, stderr, and the exit code', async () => {
   const runner = new SpawnCommandRunner();
@@ -43,6 +49,18 @@ test('SpawnCommandRunner rejects and stops output beyond the byte limit', async 
   );
 });
 
+test('SpawnCommandRunner identifies the stream that exceeds the byte limit', async () => {
+  const runner = new SpawnCommandRunner();
+
+  await assert.rejects(
+    runner.run(process.execPath, ['-e', "process.stderr.write('0123456789')"], {
+      maxOutputBytes: 5,
+    }),
+    (error: unknown) =>
+      error instanceof CommandOutputLimitError && error.message.includes('stderr'),
+  );
+});
+
 test('SpawnCommandRunner cancels an active child process', async () => {
   const runner = new SpawnCommandRunner();
   const controller = new AbortController();
@@ -66,3 +84,25 @@ test('SpawnCommandRunner does not spawn when already cancelled', async () => {
     CommandCancelledError,
   );
 });
+
+test('SpawnCommandRunner distinguishes a command that cannot start', async () => {
+  const runner = new SpawnCommandRunner();
+
+  await assert.rejects(
+    runner.run(`conda-code-missing-command-${process.pid}`, []),
+    CommandSpawnError,
+  );
+});
+
+test(
+  'SpawnCommandRunner distinguishes termination by signal',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const runner = new SpawnCommandRunner();
+
+    await assert.rejects(
+      runner.run(process.execPath, ['-e', "process.kill(process.pid, 'SIGTERM')"]),
+      CommandTerminatedError,
+    );
+  },
+);

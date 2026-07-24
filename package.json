@@ -72,11 +72,12 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
-    "compile": "webpack --mode development",
-    "package": "webpack --mode production",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "compile": "npm run clean && tsc",
+    "package": "npm run compile",
     "vsix": "vsce package --out dist/conda-code.vsix",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "npm run compile && cd dist && node --test",
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -91,11 +92,7 @@
     "@vscode/vsce": "3.9.2",
     "eslint": "9.39.5",
     "prettier": "3.9.6",
-    "ts-loader": "9.5.4",
-    "tsx": "4.23.1",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.65.0",
-    "webpack": "5.109.0",
-    "webpack-cli": "6.0.1"
+    "typescript-eslint": "8.65.0"
   }
 }

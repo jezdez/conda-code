@@ -1,5 +1,5 @@
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -74,7 +74,7 @@ export function isCondaGlobalPrefix(
 }
 
 export function isPixiEnvironmentPrefix(prefix: string): boolean {
-  const portable = prefix.replaceAll('\\', '/').toLocaleLowerCase();
+  const portable = prefix.replaceAll('\\', '/').toLowerCase();
   return portable.includes('/.pixi/envs/') || portable.endsWith('/.pixi/envs');
 }
 
@@ -82,6 +82,44 @@ export function isManagedProjectPrefix(prefix: string, projectRoot: string): boo
   return (
     normalizeEnvironmentPath(prefix) === normalizeEnvironmentPath(path.join(projectRoot, '.conda'))
   );
+}
+
+export async function isRemovableManagedProjectPrefix(
+  prefix: string,
+  projectRoot: string,
+): Promise<boolean> {
+  return isManagedProjectPrefix(prefix, projectRoot) && (await isRemovableCondaPrefix(prefix));
+}
+
+export async function isRemovableCondaPrefix(prefix: string): Promise<boolean> {
+  try {
+    const resolved = path.normalize(path.resolve(prefix));
+    const [metadata, condaMetadata] = await Promise.all([
+      lstat(resolved),
+      lstat(path.join(resolved, 'conda-meta')),
+    ]);
+    return (
+      metadata.isDirectory() &&
+      !metadata.isSymbolicLink() &&
+      condaMetadata.isDirectory() &&
+      !condaMetadata.isSymbolicLink()
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function condaPrefixCandidates(value: string): readonly string[] {
+  const resolved = path.normalize(path.resolve(value));
+  const candidates = [resolved];
+  const basename = path.basename(resolved);
+  const parent = path.dirname(resolved);
+  if (/^python(?:\d+(?:\.\d+)*)?$/i.test(basename) && path.basename(parent) === 'bin') {
+    candidates.push(path.dirname(parent));
+  } else if (/^python(?:\d+(?:\.\d+)*)?\.exe$/i.test(basename)) {
+    candidates.push(parent);
+  }
+  return [...new Set(candidates.map((candidate) => path.normalize(candidate)))];
 }
 
 export function pythonExecutablePath(prefix: string, condaPlatform: string): string {

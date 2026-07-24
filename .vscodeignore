@@ -7,11 +7,11 @@
 .prettierignore
 coverage/**
 eslint.config.mjs
-node_modules/**
-out/**
+dist/**/*.test.js
+dist/**/*.test.js.map
+dist/**/*.js.map
 package-lock.json
 prettier.config.mjs
 src/**
 *.vsix
 tsconfig.json
-webpack.config.cjs

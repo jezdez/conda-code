@@ -69,11 +69,7 @@ export function reconcileWorkspaceRouteClaims(
 
 export function normalizeEnvironmentPath(value: string): string {
   const normalized = path.normalize(path.resolve(value));
-  return process.platform === 'win32' ? normalized.toLocaleLowerCase() : normalized;
-}
-
-function projectKey(project: Uri): string {
-  return project.toString(true);
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
 /**
@@ -82,7 +78,6 @@ function projectKey(project: Uri): string {
  */
 export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver {
   private readonly routesByPrefix = new Map<string, CondaWorkspaceRoute>();
-  private readonly prefixesByProject = new Map<string, Set<string>>();
   private readonly conflictedPrefixes = new Set<string>();
 
   replaceAll(routes: readonly CondaWorkspaceRoute[]): void {
@@ -106,40 +101,11 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
         continue;
       }
       this.routesByPrefix.set(prefixKey, route);
-      const key = projectKey(route.projectUri);
-      const projectPrefixes = this.prefixesByProject.get(key) ?? new Set<string>();
-      projectPrefixes.add(prefixKey);
-      this.prefixesByProject.set(key, projectPrefixes);
     }
-  }
-
-  replaceProject(project: Uri, routes: readonly CondaWorkspaceRoute[]): void {
-    this.removeProject(project);
-
-    const prefixKeys = new Set<string>();
-    for (const route of routes) {
-      const prefixKey = normalizeEnvironmentPath(route.prefix);
-      this.routesByPrefix.set(prefixKey, route);
-      prefixKeys.add(prefixKey);
-    }
-
-    this.prefixesByProject.set(projectKey(project), prefixKeys);
-  }
-
-  removeProject(project: Uri): void {
-    const key = projectKey(project);
-    for (const prefixKey of this.prefixesByProject.get(key) ?? []) {
-      this.routesByPrefix.delete(prefixKey);
-    }
-    this.prefixesByProject.delete(key);
   }
 
   getRoute(environment: PythonEnvironment): CondaWorkspaceRoute | undefined {
     return this.routesByPrefix.get(normalizeEnvironmentPath(environment.environmentPath.fsPath));
-  }
-
-  getRouteByPrefix(prefix: string): CondaWorkspaceRoute | undefined {
-    return this.routesByPrefix.get(normalizeEnvironmentPath(prefix));
   }
 
   isConflictedPrefix(prefix: string): boolean {
@@ -166,20 +132,8 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
     return undefined;
   }
 
-  getProjectRoutes(project: Uri): readonly CondaWorkspaceRoute[] {
-    const prefixKeys = this.prefixesByProject.get(projectKey(project));
-    if (!prefixKeys) {
-      return [];
-    }
-
-    return [...prefixKeys]
-      .map((prefixKey) => this.routesByPrefix.get(prefixKey))
-      .filter((route): route is CondaWorkspaceRoute => route !== undefined);
-  }
-
   clear(): void {
     this.routesByPrefix.clear();
-    this.prefixesByProject.clear();
     this.conflictedPrefixes.clear();
   }
 }

@@ -1,12 +1,9 @@
 export interface CondaInfo {
   readonly platform: string;
-  readonly condaVersion: string;
   readonly rootPrefix: string;
-  readonly condaPrefix: string;
   readonly envsDirs: readonly string[];
   readonly defaultPrefix: string;
   readonly activePrefix: string | null;
-  readonly activePrefixName: string | null;
   readonly envs: readonly string[];
   readonly envsDetails: Readonly<Record<string, CondaEnvironmentDetails>>;
 }
@@ -26,15 +23,6 @@ export interface CondaPackageRecord {
 export interface WorkspaceInfo {
   readonly manifest: string;
   readonly name: string;
-  readonly version: string;
-  readonly description: string;
-  readonly channels: readonly string[];
-  readonly platforms: readonly string[];
-  readonly knownPlatforms: readonly string[];
-  readonly environments: readonly string[];
-  readonly features: readonly string[];
-  readonly lockfileStatus: string;
-  readonly lockfileReason?: string;
 }
 
 export interface WorkspaceEnvironment {
@@ -46,13 +34,7 @@ export interface WorkspaceEnvironment {
 export interface WorkspaceEnvironmentInfo {
   readonly name: string;
   readonly prefix: string;
-  readonly installed: boolean;
-  readonly channels: readonly string[];
-  readonly platforms: readonly string[];
-  readonly channelPriority: string | null;
   readonly condaDependencies: Readonly<Record<string, string>>;
-  readonly pypiDependencies: Readonly<Record<string, string>>;
-  readonly packageCount?: number;
 }
 
 export interface WorkspacePackage {
@@ -61,26 +43,9 @@ export interface WorkspacePackage {
   readonly build: string;
 }
 
-export interface WorkspaceTask {
-  readonly name: string;
-  readonly command?: string | readonly string[];
-  readonly description?: string;
-  readonly dependsOn: readonly string[];
-  readonly alias: boolean;
-  readonly source?: string;
-}
-
-export interface WorkspaceTaskList {
-  readonly file: string;
-  readonly tasks: Readonly<Record<string, WorkspaceTask>>;
-}
-
 export interface WorkspaceQuickstartResult {
-  readonly workspace: string;
   readonly environment: string;
   readonly manifest: string | null;
-  readonly specsAdded: readonly string[];
-  readonly shellSpawned: boolean;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -126,13 +91,6 @@ function expectString(value: unknown, path: string): string {
 function expectBoolean(value: unknown, path: string): boolean {
   if (typeof value !== 'boolean') {
     throw new CondaJsonParseError(`${path} must be a boolean`);
-  }
-  return value;
-}
-
-function expectNumber(value: unknown, path: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new CondaJsonParseError(`${path} must be a finite number`);
   }
   return value;
 }
@@ -184,16 +142,10 @@ export function parseCondaInfo(text: string): CondaInfo {
   const value = expectRecord(parseJson(text, 'conda info'), 'conda info');
   return {
     platform: expectString(value.platform, 'conda info.platform'),
-    condaVersion: expectString(value.conda_version, 'conda info.conda_version'),
     rootPrefix: expectString(value.root_prefix, 'conda info.root_prefix'),
-    condaPrefix: expectString(value.conda_prefix, 'conda info.conda_prefix'),
     envsDirs: expectStringArray(value.envs_dirs, 'conda info.envs_dirs'),
     defaultPrefix: expectString(value.default_prefix, 'conda info.default_prefix'),
     activePrefix: expectNullableString(value.active_prefix, 'conda info.active_prefix'),
-    activePrefixName: expectNullableString(
-      value.active_prefix_name,
-      'conda info.active_prefix_name',
-    ),
     envs: expectStringArray(value.envs, 'conda info.envs'),
     envsDetails: parseCondaEnvironmentDetails(value.envs_details),
   };
@@ -227,23 +179,10 @@ export function parseCondaMutationPrefix(text: string): string {
 
 export function parseWorkspaceInfo(text: string): WorkspaceInfo {
   const value = expectRecord(parseJson(text, 'conda workspace info'), 'conda workspace info');
-  const result: WorkspaceInfo = {
+  return {
     manifest: expectString(value.manifest, 'conda workspace info.manifest'),
     name: expectString(value.name, 'conda workspace info.name'),
-    version: expectString(value.version, 'conda workspace info.version'),
-    description: expectString(value.description, 'conda workspace info.description'),
-    channels: expectStringArray(value.channels, 'conda workspace info.channels'),
-    platforms: expectStringArray(value.platforms, 'conda workspace info.platforms'),
-    knownPlatforms: expectStringArray(
-      value.known_platforms,
-      'conda workspace info.known_platforms',
-    ),
-    environments: expectStringArray(value.environments, 'conda workspace info.environments'),
-    features: expectStringArray(value.features, 'conda workspace info.features'),
-    lockfileStatus: expectString(value.lockfile_status, 'conda workspace info.lockfile_status'),
   };
-  const lockfileReason = optionalString(value, 'lockfile_reason', 'conda workspace info');
-  return lockfileReason === undefined ? result : { ...result, lockfileReason };
 }
 
 export function parseWorkspaceEnvironments(text: string): readonly WorkspaceEnvironment[] {
@@ -263,25 +202,10 @@ export function parseWorkspaceEnvironments(text: string): readonly WorkspaceEnvi
 export function parseWorkspaceEnvironmentInfo(text: string): WorkspaceEnvironmentInfo {
   const path = 'conda workspace info -e';
   const value = expectRecord(parseJson(text, path), path);
-  const result: WorkspaceEnvironmentInfo = {
+  return {
     name: expectString(value.name, `${path}.name`),
     prefix: expectString(value.prefix, `${path}.prefix`),
-    installed: expectBoolean(value.installed, `${path}.installed`),
-    channels: expectStringArray(value.channels, `${path}.channels`),
-    platforms: expectStringArray(value.platforms, `${path}.platforms`),
-    channelPriority:
-      value.channel_priority === undefined
-        ? null
-        : expectNullableString(value.channel_priority, `${path}.channel_priority`),
     condaDependencies: expectStringRecord(value.conda_dependencies, `${path}.conda_dependencies`),
-    pypiDependencies: expectStringRecord(value.pypi_dependencies, `${path}.pypi_dependencies`),
-  };
-  if (value.packages_installed === undefined) {
-    return result;
-  }
-  return {
-    ...result,
-    packageCount: expectNumber(value.packages_installed, `${path}.packages_installed`),
   };
 }
 
@@ -299,59 +223,11 @@ export function parseWorkspacePackages(text: string): readonly WorkspacePackage[
   );
 }
 
-export function parseWorkspaceTaskList(text: string): WorkspaceTaskList {
-  const path = 'conda task list';
-  const value = expectRecord(parseJson(text, path), path);
-  const taskValues = expectRecord(value.tasks, `${path}.tasks`);
-  const tasks = Object.fromEntries(
-    Object.entries(taskValues).map(([key, item]) => {
-      const taskPath = `${path}.tasks.${key}`;
-      const task = expectRecord(item, taskPath);
-      const commandValue = task.cmd;
-      let command: string | readonly string[] | undefined;
-      if (commandValue !== undefined) {
-        command =
-          typeof commandValue === 'string'
-            ? commandValue
-            : expectStringArray(commandValue, `${taskPath}.cmd`);
-      }
-
-      const parsed: WorkspaceTask = {
-        name: expectString(task.name, `${taskPath}.name`),
-        dependsOn:
-          task.depends_on === undefined
-            ? []
-            : expectStringArray(task.depends_on, `${taskPath}.depends_on`),
-        alias: task.alias === undefined ? false : expectBoolean(task.alias, `${taskPath}.alias`),
-      };
-      const description = optionalString(task, 'description', taskPath);
-      const source = optionalString(task, 'source', taskPath);
-      return [
-        key,
-        {
-          ...parsed,
-          ...(command === undefined ? {} : { command }),
-          ...(description === undefined ? {} : { description }),
-          ...(source === undefined ? {} : { source }),
-        },
-      ];
-    }),
-  );
-
-  return {
-    file: expectString(value.file, `${path}.file`),
-    tasks,
-  };
-}
-
 export function parseWorkspaceQuickstartResult(text: string): WorkspaceQuickstartResult {
   const path = 'conda workspace quickstart';
   const value = expectRecord(parseJson(text, path), path);
   return {
-    workspace: expectString(value.workspace, `${path}.workspace`),
     environment: expectString(value.environment, `${path}.environment`),
     manifest: expectNullableString(value.manifest, `${path}.manifest`),
-    specsAdded: expectStringArray(value.specs_added, `${path}.specs_added`),
-    shellSpawned: expectBoolean(value.shell_spawned, `${path}.shell_spawned`),
   };
 }

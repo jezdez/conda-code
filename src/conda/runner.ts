@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 
@@ -52,19 +53,24 @@ export class CommandTerminatedError extends Error {
   }
 }
 
-interface BoundedBuffer {
-  readonly chunks: Buffer[];
-  size: number;
+interface ExecFileError extends Error {
+  readonly code?: number | string | null;
+  readonly signal?: NodeJS.Signals | null;
+  readonly stderr?: string | Buffer;
+  readonly stdout?: string | Buffer;
 }
 
-function appendBounded(target: BoundedBuffer, chunk: Buffer, limit: number): boolean {
-  const remaining = limit - target.size;
-  if (remaining > 0) {
-    const accepted = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-    target.chunks.push(accepted);
-    target.size += accepted.length;
+const execFileAsync = promisify(execFile);
+
+function asText(value: string | Buffer | undefined): string {
+  if (value === undefined) {
+    return '';
   }
-  return chunk.length <= remaining;
+  return typeof value === 'string' ? value : value.toString('utf8');
+}
+
+function asExecFileError(value: unknown): ExecFileError | undefined {
+  return value instanceof Error ? (value as ExecFileError) : undefined;
 }
 
 export class SpawnCommandRunner implements CommandRunner {
@@ -81,87 +87,44 @@ export class SpawnCommandRunner implements CommandRunner {
       throw new CommandCancelledError(executable);
     }
 
-    return new Promise<CommandResult>((resolve, reject) => {
-      const stdout: BoundedBuffer = { chunks: [], size: 0 };
-      const stderr: BoundedBuffer = { chunks: [], size: 0 };
-      let pendingError: Error | undefined;
-      let settled = false;
-
-      const child = spawn(executable, Array.from(args), {
+    try {
+      const { stdout, stderr } = await execFileAsync(executable, Array.from(args), {
         cwd: options.cwd,
         env: options.env,
         shell: false,
         windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        signal: options.signal,
+        maxBuffer: maxOutputBytes,
+        encoding: 'utf8',
       });
 
-      const removeAbortListener = (): void => {
-        options.signal?.removeEventListener('abort', handleAbort);
+      return {
+        exitCode: 0,
+        stdout: asText(stdout),
+        stderr: asText(stderr),
       };
+    } catch (error) {
+      const commandError = asExecFileError(error);
 
-      const rejectOnce = (error: Error): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        removeAbortListener();
-        reject(error);
-      };
+      if (options.signal?.aborted || commandError?.name === 'AbortError') {
+        throw new CommandCancelledError(executable);
+      }
+      if (commandError?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+        const stream = commandError.message.startsWith('stderr') ? 'stderr' : 'stdout';
+        throw new CommandOutputLimitError(executable, stream, maxOutputBytes);
+      }
+      if (typeof commandError?.code === 'number') {
+        return {
+          exitCode: commandError.code,
+          stdout: asText(commandError.stdout),
+          stderr: asText(commandError.stderr),
+        };
+      }
+      if (commandError?.code === null || commandError?.signal != null) {
+        throw new CommandTerminatedError(executable, commandError.signal ?? null);
+      }
 
-      const stopFor = (error: Error): void => {
-        if (pendingError !== undefined) {
-          return;
-        }
-        pendingError = error;
-        child.kill();
-      };
-
-      const handleAbort = (): void => {
-        stopFor(new CommandCancelledError(executable));
-      };
-
-      options.signal?.addEventListener('abort', handleAbort, { once: true });
-
-      child.stdout.on('data', (value: Buffer | string) => {
-        const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-        if (!appendBounded(stdout, chunk, maxOutputBytes)) {
-          stopFor(new CommandOutputLimitError(executable, 'stdout', maxOutputBytes));
-        }
-      });
-
-      child.stderr.on('data', (value: Buffer | string) => {
-        const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-        if (!appendBounded(stderr, chunk, maxOutputBytes)) {
-          stopFor(new CommandOutputLimitError(executable, 'stderr', maxOutputBytes));
-        }
-      });
-
-      child.once('error', (error) => {
-        rejectOnce(new CommandSpawnError(executable, error));
-      });
-
-      child.once('close', (exitCode, signal) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        removeAbortListener();
-
-        if (pendingError !== undefined) {
-          reject(pendingError);
-          return;
-        }
-        if (exitCode === null) {
-          reject(new CommandTerminatedError(executable, signal));
-          return;
-        }
-
-        resolve({
-          exitCode,
-          stdout: Buffer.concat(stdout.chunks, stdout.size).toString('utf8'),
-          stderr: Buffer.concat(stderr.chunks, stderr.size).toString('utf8'),
-        });
-      });
-    });
+      throw new CommandSpawnError(executable, error);
+    }
   }
 }

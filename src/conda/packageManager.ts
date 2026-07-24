@@ -1,6 +1,7 @@
 import {
   DidChangePackagesEventArgs,
   Package,
+  PackageInfo,
   PackageManagementOptions,
   PackageManager,
   PythonEnvironment,
@@ -22,14 +23,25 @@ export interface CondaPackageManagerOptions {
   readonly log?: LogOutputChannel;
 }
 
-interface PackageWithTransitiveState extends Package {
-  readonly isTransitive?: boolean;
+interface CachedPackages {
+  readonly environment: PythonEnvironment;
+  readonly packages: readonly Package[];
 }
 
 export class WorkspacePackageRemovalError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = 'WorkspacePackageRemovalError';
+  }
+}
+
+export class WorkspacePackageUpgradeError extends Error {
+  public constructor(manifest: string) {
+    super(
+      `Conda workspace package upgrades are not supported. Edit ${manifest} directly, ` +
+        'then refresh Conda Code.',
+    );
+    this.name = 'WorkspacePackageUpgradeError';
   }
 }
 
@@ -41,7 +53,7 @@ export class CondaEnvironmentOwnershipError extends Error {
 }
 
 function normalizedPackageName(value: string): string {
-  return value.trim().toLocaleLowerCase();
+  return value.trim().toLowerCase();
 }
 
 export class CondaPackageManager implements PackageManager, Disposable {
@@ -51,7 +63,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public readonly iconPath = new ThemeIcon('package');
   public readonly log?: LogOutputChannel;
 
-  private readonly packagesByEnvironment = new Map<string, readonly Package[]>();
+  private readonly packagesByEnvironment = new Map<string, CachedPackages>();
   private readonly onDidChangePackagesEmitter = new EventEmitter<DidChangePackagesEventArgs>();
 
   public readonly onDidChangePackages = this.onDidChangePackagesEmitter.event;
@@ -88,16 +100,21 @@ export class CondaPackageManager implements PackageManager, Disposable {
         });
       }
     } else {
+      if (options.upgrade === true && install.length > 0) {
+        throw new WorkspacePackageUpgradeError(route.manifestUri.fsPath);
+      }
       await this.manageWorkspace(route, uninstall, install);
     }
 
     await this.routes.refresh(route?.projectUri ?? current.environmentPath);
-    this.packagesByEnvironment.delete(current.envId.id);
     const refreshedEnvironment =
       route === undefined
         ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
         : this.routes.getEnvironmentForRoute(route);
     if (refreshedEnvironment !== undefined) {
+      if (refreshedEnvironment.envId.id !== current.envId.id) {
+        this.packagesByEnvironment.delete(current.envId.id);
+      }
       await this.refresh(refreshedEnvironment);
     }
   }
@@ -105,22 +122,12 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public async refresh(environment: PythonEnvironment): Promise<void> {
     const currentEnvironment = this.requireOwnedEnvironment(environment);
     const key = currentEnvironment.envId.id;
-    const previous = this.packagesByEnvironment.get(key) ?? [];
-    const route = this.routes.getRoute(currentEnvironment);
-    const current =
-      route === undefined
-        ? this.toCondaPackages(
-            await this.conda.listPackages(currentEnvironment.environmentPath.fsPath),
-            currentEnvironment,
-            previous,
-          )
-        : this.toWorkspacePackages(
-            await this.workspaces.listPackages(route.manifestUri.fsPath, route.environmentName),
-            currentEnvironment,
-            previous,
-            route.directCondaDependencies,
-          );
-    this.packagesByEnvironment.set(key, current);
+    const previous = this.packagesByEnvironment.get(key)?.packages ?? [];
+    const current = await this.loadPackages(currentEnvironment, previous);
+    this.packagesByEnvironment.set(key, {
+      environment: currentEnvironment,
+      packages: current,
+    });
 
     const changes = diffPackages(previous, current);
     if (changes.length > 0) {
@@ -133,45 +140,38 @@ export class CondaPackageManager implements PackageManager, Disposable {
   }
 
   public async getPackages(environment: PythonEnvironment): Promise<Package[] | undefined> {
-    const currentEnvironment = this.routes.getEnvironmentForPrefix(
-      environment.environmentPath.fsPath,
-    );
-    if (
-      currentEnvironment === undefined ||
-      currentEnvironment.envId.id !== environment.envId.id ||
-      currentEnvironment.envId.managerId !== environment.envId.managerId ||
-      currentEnvironment.description !== environment.description ||
-      currentEnvironment.tooltip !== environment.tooltip
-    ) {
+    const currentEnvironment = this.currentEnvironment(environment);
+    if (currentEnvironment === undefined) {
       return undefined;
     }
 
     const key = currentEnvironment.envId.id;
     const cached = this.packagesByEnvironment.get(key);
     if (cached !== undefined) {
-      return [...cached];
+      return [...cached.packages];
     }
 
-    const route = this.routes.getRoute(currentEnvironment);
-    const packages =
-      route === undefined
-        ? this.toCondaPackages(
-            await this.conda.listPackages(currentEnvironment.environmentPath.fsPath),
-            currentEnvironment,
-            [],
-          )
-        : this.toWorkspacePackages(
-            await this.workspaces.listPackages(route.manifestUri.fsPath, route.environmentName),
-            currentEnvironment,
-            [],
-            route.directCondaDependencies,
-          );
-    this.packagesByEnvironment.set(key, packages);
+    const packages = await this.loadPackages(currentEnvironment, []);
+    this.packagesByEnvironment.set(key, {
+      environment: currentEnvironment,
+      packages,
+    });
     return packages;
   }
 
   public async clearCache(): Promise<void> {
+    const cached = [...this.packagesByEnvironment.values()];
     this.packagesByEnvironment.clear();
+    for (const { environment, packages } of cached) {
+      const changes = diffPackages(packages, []);
+      if (changes.length > 0) {
+        this.onDidChangePackagesEmitter.fire({
+          environment,
+          manager: this,
+          changes,
+        });
+      }
+    }
   }
 
   public dispose(): void {
@@ -184,17 +184,20 @@ export class CondaPackageManager implements PackageManager, Disposable {
     if (this.routes.isConflictedPrefix(prefix)) {
       throw new CondaWorkspaceRouteConflictError(prefix);
     }
-    const current = this.routes.getEnvironmentForPrefix(prefix);
-    if (
-      current === undefined ||
-      current.envId.id !== environment.envId.id ||
-      current.envId.managerId !== environment.envId.managerId ||
-      current.description !== environment.description ||
-      current.tooltip !== environment.tooltip
-    ) {
+    const current = this.currentEnvironment(environment);
+    if (current === undefined) {
       throw new CondaEnvironmentOwnershipError(prefix);
     }
     return current;
+  }
+
+  private currentEnvironment(environment: PythonEnvironment): PythonEnvironment | undefined {
+    const current = this.routes.getEnvironmentForPrefix(environment.environmentPath.fsPath);
+    return current !== undefined &&
+      current.envId.id === environment.envId.id &&
+      current.envId.managerId === environment.envId.managerId
+      ? current
+      : undefined;
   }
 
   private async manageWorkspace(
@@ -203,25 +206,10 @@ export class CondaPackageManager implements PackageManager, Disposable {
     install: readonly string[],
   ): Promise<void> {
     if (uninstall.length > 0) {
-      if (route.features.length > 0) {
-        throw new WorkspacePackageRemovalError(
-          `Package removal for feature-based environment ${route.environmentName} ` +
-            'requires editing the manifest directly.',
-        );
-      }
-      const directDependencies = new Set(route.directCondaDependencies.map(normalizedPackageName));
-      const transitive = uninstall.filter(
-        (name) => !directDependencies.has(normalizedPackageName(name)),
+      throw new WorkspacePackageRemovalError(
+        `Conda workspace package removal is not supported. Edit ${route.manifestUri.fsPath} ` +
+          'directly, then refresh Conda Code.',
       );
-      if (transitive.length > 0) {
-        throw new WorkspacePackageRemovalError(
-          `Only direct manifest dependencies can be removed. These packages ` +
-            `are transitive: ${transitive.join(', ')}`,
-        );
-      }
-      await this.workspaces.removeDependencies(route.manifestUri.fsPath, uninstall, {
-        feature: undefined,
-      });
     }
     if (install.length > 0) {
       const feature = dependencyFeature(route.environmentName, route.features);
@@ -231,62 +219,67 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
   }
 
-  private toCondaPackages(
-    condaPackages: readonly CondaPackageRecord[],
+  private async loadPackages(
     environment: PythonEnvironment,
     previous: readonly Package[],
-  ): Package[] {
+  ): Promise<Package[]> {
+    const route = this.routes.getRoute(environment);
+    const packageInfo =
+      route === undefined
+        ? this.condaPackageInfo(
+            await this.conda.listPrefixPackages(environment.environmentPath.fsPath),
+          )
+        : this.workspacePackageInfo(
+            await this.workspaces.listPackages(route.manifestUri.fsPath, route.environmentName),
+            route.directCondaDependencies,
+          );
     const previousByName = new Map(previous.map((pkg) => [pkg.name, pkg]));
-    return condaPackages.map((pkg) => {
-      const descriptionParts = [
-        pkg.build === '' ? undefined : `Build ${pkg.build}`,
-        pkg.channel === undefined ? undefined : `Channel ${pkg.channel}`,
-      ].filter((value): value is string => value !== undefined);
-      const description = descriptionParts.length === 0 ? undefined : descriptionParts.join(', ');
-      const cached = previousByName.get(pkg.name);
-      if (cached?.version === pkg.version && cached.description === description) {
-        return cached;
-      }
-      return this.api.createPackageItem(
-        {
-          name: pkg.name,
-          displayName: pkg.name,
-          version: pkg.version,
-          description,
-        },
-        environment,
-        this,
-      );
-    });
-  }
-
-  private toWorkspacePackages(
-    workspacePackages: readonly WorkspacePackage[],
-    environment: PythonEnvironment,
-    previous: readonly Package[],
-    directDependencies: readonly string[],
-  ): Package[] {
-    const previousByName = new Map(previous.map((pkg) => [pkg.name, pkg]));
-    const directNames = new Set(directDependencies.map(normalizedPackageName));
-    return workspacePackages.map((pkg) => {
-      const description = pkg.build === '' ? undefined : `Build ${pkg.build}`;
-      const isTransitive = !directNames.has(normalizedPackageName(pkg.name));
-      const cached = previousByName.get(pkg.name);
+    return packageInfo.map((info) => {
+      const cached = previousByName.get(info.name);
       if (
-        cached?.version === pkg.version &&
-        cached.description === description &&
-        (cached as PackageWithTransitiveState).isTransitive === isTransitive
+        cached !== undefined &&
+        cached.version === info.version &&
+        cached.description === info.description &&
+        cached.tooltip === info.tooltip
       ) {
         return cached;
       }
-      const info = {
+      return this.api.createPackageItem(info, environment, this);
+    });
+  }
+
+  private condaPackageInfo(condaPackages: readonly CondaPackageRecord[]): PackageInfo[] {
+    return condaPackages.map((pkg) => {
+      const details = [
+        pkg.build === '' ? undefined : `Build ${pkg.build}`,
+        pkg.channel === undefined ? undefined : `Channel ${pkg.channel}`,
+      ].filter((value): value is string => value !== undefined);
+      return {
         name: pkg.name,
         displayName: pkg.name,
         version: pkg.version,
-        description,
-        isTransitive,
+        ...(details.length === 0 ? {} : { description: details.join(', ') }),
       };
-      return this.api.createPackageItem(info, environment, this);
+    });
+  }
+
+  private workspacePackageInfo(
+    workspacePackages: readonly WorkspacePackage[],
+    directDependencies: readonly string[],
+  ): PackageInfo[] {
+    const directNames = new Set(directDependencies.map(normalizedPackageName));
+    return workspacePackages.map((pkg) => {
+      const isTransitive = !directNames.has(normalizedPackageName(pkg.name));
+      const details = [
+        pkg.build === '' ? undefined : `Build ${pkg.build}`,
+        isTransitive ? 'Transitive dependency' : 'Direct dependency',
+      ].filter((value): value is string => value !== undefined);
+      return {
+        name: pkg.name,
+        displayName: pkg.name,
+        version: pkg.version,
+        description: details.join(', '),
+      };
     });
   }
 }
