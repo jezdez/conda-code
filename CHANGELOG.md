@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Show installed packages under environments with Python Environments 1.36
+
 ## 0.2.0
 
 - Expose conda-workspaces tasks through the native VS Code task interface and

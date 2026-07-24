@@ -296,6 +296,46 @@ test('resolve reuses the conda info collected during refresh', async (t) => {
   assert.equal(getInfoCalls, 1);
 });
 
+test('regular environments use the native Conda base, named, and prefix groups', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-environment-groups-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = path.join(root, 'base');
+  const envsDir = path.join(base, 'envs');
+  const named = path.join(envsDir, 'named');
+  const prefix = path.join(root, 'project', '.conda');
+  await Promise.all(
+    [base, named, prefix].map((environment) =>
+      mkdir(path.join(environment, 'conda-meta'), { recursive: true }),
+    ),
+  );
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  vscode.__state.files = [];
+  vscode.__state.folders = [];
+  const conda = {
+    getInfo: async () => condaInfo(base, [named, prefix], envsDir),
+  } as unknown as CondaClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([]),
+    conda,
+    {} as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  const environments = await manager.getEnvironments('all');
+  const groups = new Map(
+    environments.map((environment: PythonEnvironment) => [
+      environment.environmentPath.fsPath,
+      environment.group,
+    ]),
+  );
+  assert.equal(groups.get(base), undefined);
+  assert.equal(groups.get(named), 'Named');
+  assert.equal(groups.get(prefix), 'Prefix');
+});
+
 test('quick create uses a project environment file before creating a workspace', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-environment-file-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -705,7 +745,7 @@ test('workspace package changes reject operations that cannot preserve the manif
   assert.equal(workspaceCalls, 0);
 });
 
-test('package cache clearing emits supported package removal changes', async (t) => {
+test('package cache clearing invalidates records without reporting removals', async (t) => {
   const { vscode, packageManager } = modules();
   const prefix = '/opt/conda/envs/demo';
   const environment = {
@@ -718,15 +758,19 @@ test('package cache clearing emits supported package removal changes', async (t)
     isConflictedPrefix: () => false,
     refresh: async () => undefined,
   } as unknown as CondaWorkspaceRouteManager;
+  let listCalls = 0;
   const conda = {
-    listPrefixPackages: async () => [
-      {
-        name: 'python',
-        version: '3.13.5',
-        build: 'h1_0',
-        channel: 'conda-forge',
-      },
-    ],
+    listPrefixPackages: async () => {
+      listCalls += 1;
+      return [
+        {
+          name: 'python',
+          version: '3.13.5',
+          build: 'h1_0',
+          channel: 'conda-forge',
+        },
+      ];
+    },
   } as unknown as CondaClient;
   const packages = new packageManager.CondaPackageManager(
     pythonApi([]),
@@ -743,9 +787,77 @@ test('package cache clearing emits supported package removal changes', async (t)
     'Build h1_0, Channel conda-forge',
   );
   await packages.clearCache();
+  assert.equal(
+    (await packages.getPackages(environment))?.[0]?.description,
+    'Build h1_0, Channel conda-forge',
+  );
+  assert.equal(listCalls, 2);
+  assert.deepEqual(events, []);
+});
 
+test('package refresh returns packages and skipCache reloads them', async (t) => {
+  const { vscode, packageManager } = modules();
+  const prefix = '/opt/conda/envs/demo';
+  const environment = {
+    envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
+    environmentPath: vscode.Uri.file(prefix),
+  } as PythonEnvironment;
+  const routes = {
+    getRoute: () => undefined,
+    getEnvironmentForPrefix: () => environment,
+    isConflictedPrefix: () => false,
+    refresh: async () => undefined,
+  } as unknown as CondaWorkspaceRouteManager;
+  let listCalls = 0;
+  let version = '3.13.1';
+  const conda = {
+    listPrefixPackages: async () => {
+      listCalls += 1;
+      return [
+        {
+          name: 'python',
+          version,
+          build: 'h1_0',
+          channel: 'defaults',
+        },
+      ];
+    },
+  } as unknown as CondaClient;
+  const packages = new packageManager.CondaPackageManager(
+    pythonApi([]),
+    conda,
+    {} as CondaWorkspacesClient,
+    routes,
+  );
+  t.after(() => packages.dispose());
+  const events: { readonly changes: readonly { readonly kind: string }[] }[] = [];
+  packages.onDidChangePackages((event) => events.push(event));
+
+  assert.equal((await packages.refresh(environment))[0]?.version, '3.13.1');
+  assert.equal((await packages.refresh(environment))[0]?.version, '3.13.1');
+  assert.equal((await packages.getPackages(environment))?.[0]?.version, '3.13.1');
+  assert.equal(listCalls, 2);
   assert.deepEqual(
     events.map(({ changes }) => changes.map(({ kind }) => kind)),
-    [['remove']],
+    [['add']],
+  );
+
+  version = '3.13.2';
+  assert.equal(
+    (await packages.getPackages(environment, { skipCache: true }))?.[0]?.version,
+    '3.13.2',
+  );
+  assert.equal(listCalls, 3);
+  assert.deepEqual(
+    events.map(({ changes }) => changes.map(({ kind }) => kind)),
+    [['add']],
+  );
+
+  version = '3.13.3';
+  assert.equal((await packages.refresh(environment))[0]?.version, '3.13.3');
+  assert.equal(listCalls, 4);
+  assert.deepEqual(
+    events.map(({ changes }) => changes.map(({ kind }) => kind)),
+    [['add'], ['remove', 'add']],
   );
 });

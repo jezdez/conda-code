@@ -23,6 +23,10 @@ export interface CondaPackageManagerOptions {
   readonly log?: LogOutputChannel;
 }
 
+interface GetPackagesOptions {
+  readonly skipCache?: boolean;
+}
+
 interface CachedPackages {
   readonly environment: PythonEnvironment;
   readonly packages: readonly Package[];
@@ -119,30 +123,27 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
   }
 
-  public async refresh(environment: PythonEnvironment): Promise<void> {
+  // Python Environments 1.36 renders this returned list, while its published
+  // 1.0 API types still declare Promise<void>. Keep both signatures until the
+  // API package catches up with the extension runtime.
+  public refresh(environment: PythonEnvironment): Promise<Package[]>;
+  public refresh(environment: PythonEnvironment): Promise<void>;
+  public async refresh(environment: PythonEnvironment): Promise<Package[] | void> {
     const currentEnvironment = this.requireOwnedEnvironment(environment);
-    const key = currentEnvironment.envId.id;
-    const previous = this.packagesByEnvironment.get(key)?.packages ?? [];
-    const current = await this.loadPackages(currentEnvironment, previous);
-    this.packagesByEnvironment.set(key, {
-      environment: currentEnvironment,
-      packages: current,
-    });
-
-    const changes = diffPackages(previous, current);
-    if (changes.length > 0) {
-      this.onDidChangePackagesEmitter.fire({
-        environment: currentEnvironment,
-        manager: this,
-        changes,
-      });
-    }
+    return this.refreshPackages(currentEnvironment);
   }
 
-  public async getPackages(environment: PythonEnvironment): Promise<Package[] | undefined> {
+  public async getPackages(
+    environment: PythonEnvironment,
+    options: GetPackagesOptions = {},
+  ): Promise<Package[] | undefined> {
     const currentEnvironment = this.currentEnvironment(environment);
     if (currentEnvironment === undefined) {
       return undefined;
+    }
+
+    if (options.skipCache === true) {
+      return this.loadAndCachePackages(currentEnvironment);
     }
 
     const key = currentEnvironment.envId.id;
@@ -151,27 +152,11 @@ export class CondaPackageManager implements PackageManager, Disposable {
       return [...cached.packages];
     }
 
-    const packages = await this.loadPackages(currentEnvironment, []);
-    this.packagesByEnvironment.set(key, {
-      environment: currentEnvironment,
-      packages,
-    });
-    return packages;
+    return this.loadAndCachePackages(currentEnvironment);
   }
 
   public async clearCache(): Promise<void> {
-    const cached = [...this.packagesByEnvironment.values()];
     this.packagesByEnvironment.clear();
-    for (const { environment, packages } of cached) {
-      const changes = diffPackages(packages, []);
-      if (changes.length > 0) {
-        this.onDidChangePackagesEmitter.fire({
-          environment,
-          manager: this,
-          changes,
-        });
-      }
-    }
   }
 
   public dispose(): void {
@@ -198,6 +183,32 @@ export class CondaPackageManager implements PackageManager, Disposable {
       current.envId.managerId === environment.envId.managerId
       ? current
       : undefined;
+  }
+
+  private async refreshPackages(environment: PythonEnvironment): Promise<Package[]> {
+    const previous = this.packagesByEnvironment.get(environment.envId.id)?.packages ?? [];
+    const current = await this.loadAndCachePackages(environment);
+
+    const changes = diffPackages(previous, current);
+    if (changes.length > 0) {
+      this.onDidChangePackagesEmitter.fire({
+        environment,
+        manager: this,
+        changes,
+      });
+    }
+    return current;
+  }
+
+  private async loadAndCachePackages(environment: PythonEnvironment): Promise<Package[]> {
+    const key = environment.envId.id;
+    const previous = this.packagesByEnvironment.get(key)?.packages ?? [];
+    const current = await this.loadPackages(environment, previous);
+    this.packagesByEnvironment.set(key, {
+      environment,
+      packages: current,
+    });
+    return [...current];
   }
 
   private async manageWorkspace(
