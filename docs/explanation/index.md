@@ -38,7 +38,7 @@ remain visible.
 :link-type: doc
 
 How conda-workspaces, conda-pypi, conda-global, and Pixi Code relate to Conda
-Code.
+Code, including which manifests contribute workspace tasks.
 :::
 
 ::::

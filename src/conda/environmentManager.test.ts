@@ -527,6 +527,10 @@ test('partial workspace failure retains the failed sibling and drops a healthy d
 
   await manager.refresh(undefined);
   const before = await manager.getEnvironments('all');
+  assert.deepEqual(
+    (await manager.getWorkspaceManifests()).map((uri) => uri.fsPath),
+    [manifestPath],
+  );
   const selected = before.find((environment: PythonEnvironment) => environment.name === 'default');
   assert.ok(selected);
   assert.deepEqual(before.map((environment: PythonEnvironment) => environment.name).sort(), [

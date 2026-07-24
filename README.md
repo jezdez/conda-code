@@ -4,9 +4,10 @@
 
 Conda Code provides conda environment and package management through the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
-It defines its own conda provider for regular environments and adds
+It defines its own conda provider for regular environments and uses
 [conda-workspaces](https://github.com/conda-incubator/conda-workspaces) as a
-project-aware layer.
+project-aware layer. It also publishes conda-workspaces tasks through the
+native VS Code task interface.
 
 The registered environment manager and package manager ID is
 `jezdez.conda-code:conda`.
@@ -30,10 +31,9 @@ Python Environments is installed as an extension dependency.
 
 ### Regular conda environments
 
-These are standard conda prefixes. The `conda env` command is another CLI
-surface over the same environment model. Conda Code discovers those prefixes
-through `conda info --json` and does not introduce a separate regular environment
-format.
+These are standard conda prefixes. Conda Code discovers them through
+`conda info --json` and manages them with core conda commands. The `conda env`
+command group refers to the same prefixes but is not used by Conda Code.
 
 - Discover the base environment and registered named or prefix environments from
   `conda info --json`
@@ -68,6 +68,10 @@ format.
 - Add conda dependencies for environments backed by zero or one feature
 - Refuse workspace dependency removal, package upgrades, and additions to
   composite environments
+- Expose declared workspace tasks through the native VS Code task interface
+  while delegating discovery and execution to `conda task`
+- Run a task in the selected Conda Code workspace environment when it belongs
+  to the same manifest
 - Refresh when a manifest or `conda.lock` changes
 
 Conda Code publishes each prefix once. When exactly one workspace reports a
@@ -211,10 +215,13 @@ Set `conda-code.condaExecutable` when the desired conda is not available through
 Install Conda Code and open the Python Environments view. The Conda Code provider
 lists regular conda environments immediately. Opening a registered Python project
 with a supported workspace manifest adds its installed workspace environments to
-the same provider.
+the same provider. Tasks declared by that manifest appear under
+**Tasks: Run Task** with the `conda-workspaces` source. Select one of that
+workspace's Conda Code environments first to run the task there.
 
 Run `Conda Code: Refresh Environments` after an external change when automatic
-manifest refresh is not sufficient.
+manifest refresh is not sufficient. The command also refreshes workspace task
+discovery.
 
 ## Development
 

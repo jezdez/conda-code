@@ -1,12 +1,13 @@
 # Conda Code
 
-Conda environment and package management in Visual Studio Code.
+Conda environments, packages, workspaces, and tasks in Visual Studio Code.
 
 Conda Code registers its own provider with the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
 It presents regular conda environments and project-aware
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/)
-environments through one manager.
+environments through one manager. It also publishes declared workspace tasks
+through the native VS Code task interface.
 
 The provider ID is `jezdez.conda-code:conda`. Conda Code runs the configured
 conda executable directly and does not delegate to Python Environments'
@@ -26,7 +27,7 @@ select environments, remove them, and manage packages.
 
 Find installed environments declared by `conda.toml`, compatible `pixi.toml`
 files, and compatible `pyproject.toml` tables. Route changes through
-`conda workspace`.
+`conda workspace` and run declared tasks through native VS Code tasks.
 :::
 
 :::{grid-item-card} {octicon}`package` Conda package management
@@ -77,22 +78,23 @@ discovery.
 :link-type: doc
 
 Create named environments directly and from `environment.yml`, then create a
-manifest-backed workspace environment.
+manifest-backed workspace environment and run one of its tasks.
 :::
 
 :::{grid-item-card} {octicon}`tools` How-to guides
 :link: how-to/index
 :link-type: doc
 
-Configure conda, select the provider, manage environments, and resolve common
-problems.
+Configure conda, select the provider, manage environments, run workspace tasks,
+and resolve common problems.
 :::
 
 :::{grid-item-card} {octicon}`list-unordered` Reference
 :link: reference/index
 :link-type: doc
 
-Requirements, settings, discovery rules, and supported operation tables.
+Requirements, settings, discovery rules, task definitions, and supported
+operation tables.
 :::
 
 :::{grid-item-card} {octicon}`light-bulb` Explanation
@@ -151,6 +153,7 @@ Project creation <reference/project-creation>
 Environment operations <reference/environment-operations>
 Package operations <reference/package-operations>
 Workspace discovery <reference/workspace-discovery>
+Workspace tasks <reference/workspace-tasks>
 ```
 
 ```{toctree}

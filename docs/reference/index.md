@@ -51,4 +51,11 @@ Listing and mutation support for regular and workspace environments.
 Manifest priority, project registration, routing, and refresh behavior.
 :::
 
+:::{grid-item-card} Workspace tasks
+:link: workspace-tasks
+:link-type: doc
+
+Native task definitions, discovery scope, execution, and Pixi Code coexistence.
+:::
+
 ::::

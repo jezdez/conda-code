@@ -7,11 +7,13 @@ import {
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
+  parseWorkspaceTasks,
   type WorkspaceEnvironment,
   type WorkspaceEnvironmentInfo,
   type WorkspaceInfo,
   type WorkspacePackage,
   type WorkspaceQuickstartResult,
+  type WorkspaceTaskList,
 } from './parsers';
 import { type CommandResult } from './runner';
 
@@ -21,6 +23,8 @@ export type {
   WorkspaceInfo,
   WorkspacePackage,
   WorkspaceQuickstartResult,
+  WorkspaceTask,
+  WorkspaceTaskList,
 } from './parsers';
 export { CondaCommandError } from './conda';
 
@@ -70,6 +74,14 @@ function pythonExecutable(prefix: string, condaPlatform: string): string {
 }
 
 export class CondaWorkspacesClient extends CondaClient {
+  public async listTasks(
+    manifest: string,
+    options: CondaOperationOptions = {},
+  ): Promise<WorkspaceTaskList> {
+    const result = await this.runTask(manifest, ['list', '--json'], options);
+    return parseWorkspaceTasks(result.stdout);
+  }
+
   public async getWorkspaceInfo(
     manifest: string,
     options: CondaOperationOptions = {},
@@ -243,6 +255,19 @@ export class CondaWorkspacesClient extends CondaClient {
     const manifestPath = absoluteManifestPath(manifest);
     return this.runChecked(
       ['workspace', '--file', manifestPath, ...args],
+      options,
+      dirname(manifestPath),
+    );
+  }
+
+  private runTask(
+    manifest: string,
+    args: readonly string[],
+    options: CondaOperationOptions,
+  ): Promise<CommandResult> {
+    const manifestPath = absoluteManifestPath(manifest);
+    return this.runChecked(
+      ['task', '--file', manifestPath, ...args],
       options,
       dirname(manifestPath),
     );

@@ -1,17 +1,26 @@
 # Ecosystem fit
 
-Conda Code connects the Python Environments UI to conda itself and to a small
-set of related tools that affect environment discovery or package records.
+Conda Code connects Visual Studio Code to conda itself and to a small set of
+related tools that affect environment discovery, package records, or task
+execution.
 
 ## conda-workspaces
 
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/) defines
 project manifests, declared environments, features, tasks, and workspace
 commands. Conda Code provides VS Code integration for installed workspace
-environments.
+environments and declared tasks.
 
-It uses workspace commands for discovery and changes. Regular conda support
-does not require a workspace manifest.
+It uses `conda workspace` for environment discovery and changes, and
+`conda task` for tasks. Regular conda support does not require a workspace
+manifest.
+
+Conda Code publishes tasks from the workspace manifest selected for a
+registered Python project. It uses `conda task list` for discovery and
+`conda task run` for execution. conda-workspaces remains responsible for the
+task graph, platform behavior, variables, and caching. Conda Code passes the
+selected Conda Code workspace environment when it belongs to the same
+manifest. It does not parse or edit task definitions.
 
 ## conda-pypi
 
@@ -60,6 +69,9 @@ packages and project environments.
 The extensions can be installed together. When Pixi Code is present, Conda
 Code leaves `pixi.toml`, `[tool.pixi]`, and `.pixi/envs` to Pixi Code while
 continuing to handle regular conda environments and `conda.toml` projects.
+That rule also applies to task discovery. When Pixi Code is installed, Conda
+Code does not publish tasks from `pixi.toml` or a `pyproject.toml` project with
+a `[tool.pixi]` table.
 
 ## Python Environments
 

@@ -41,7 +41,8 @@ Create, remove, select, and modify regular conda environments.
 :link: use-workspaces
 :link-type: doc
 
-Install declared environments and work within supported package operations.
+Install declared environments, run tasks, and work within supported package
+operations.
 :::
 
 :::{grid-item-card} Coexist with Pixi Code

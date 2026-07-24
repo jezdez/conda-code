@@ -1,10 +1,11 @@
 {
   "name": "conda-code",
   "displayName": "Conda Code",
-  "description": "Conda environments, workspaces, and package management for Visual Studio Code.",
-  "version": "0.1.1",
+  "description": "Conda environments, workspaces, packages, and tasks for Visual Studio Code.",
+  "version": "0.2.0",
   "private": true,
   "publisher": "jezdez",
+  "icon": "assets/conda-logo.png",
   "license": "BSD-3-Clause",
   "homepage": "https://jezdez.github.io/conda-code/",
   "bugs": {
@@ -57,6 +58,26 @@
       {
         "command": "conda-code.refresh",
         "title": "Conda Code: Refresh Environments"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "conda-workspace",
+        "required": [
+          "task",
+          "file"
+        ],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Task name declared by conda-workspaces."
+          },
+          "file": {
+            "type": "string",
+            "description": "Workspace-folder-relative path to the conda-workspaces manifest."
+          }
+        },
+        "when": "processExecutionSupported"
       }
     ],
     "configuration": {

@@ -46,6 +46,32 @@ conda workspace list
 
 The package view labels packages as direct or transitive dependencies.
 
+## Declare a task
+
+Add this task to `conda.toml` and save the file:
+
+```toml
+[tasks]
+python-version = { cmd = "python --version", description = "Show the Python version" }
+```
+
+## Run a task
+
+1. Select the workspace's **default** environment in the Python Environments
+   view.
+2. Open the Command Palette.
+3. Run **Tasks: Run Task**.
+4. Select **python-version** from the `conda-workspaces` source.
+
+VS Code opens a task terminal. Conda Code delegates execution to:
+
+```console
+conda task --file /path/to/conda.toml run --environment=default -- python-version
+```
+
+Conda Code passes the matching selected workspace environment. conda-workspaces
+resolves the task graph and runs the declared command.
+
 ## Clean and reinstall
 
 Delete the environment from the Python Environments view. Conda Code runs the
@@ -60,4 +86,5 @@ the declared but uninstalled environment and installs it again.
 The manifest, not the prefix alone, defines the workspace. Conda Code keeps the
 environment visible through the same provider as regular conda environments,
 then chooses workspace commands whenever that manifest is the single source
-reporting the prefix.
+reporting the prefix. It also surfaces the manifest's tasks through VS Code
+while leaving task execution to conda-workspaces.

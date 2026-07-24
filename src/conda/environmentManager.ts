@@ -558,6 +558,11 @@ export class CondaEnvironmentManager
     return this.routes.getRoute(environment);
   }
 
+  public async getWorkspaceManifests(): Promise<Uri[]> {
+    await this.ensureInitialized();
+    return [...this.workspacesByProject.values()].map((entry) => entry.manifestUri);
+  }
+
   public dispose(): void {
     this.onDidChangeEnvironmentEmitter.dispose();
     this.onDidChangeEnvironmentsEmitter.dispose();

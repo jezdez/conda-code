@@ -40,9 +40,9 @@ An empty value uses this precedence:
 
 Command ID: `conda-code.refresh`
 
-Clears the package cache and refreshes regular and workspace environments.
-Conda Code also schedules refreshes when `conda.toml`, `pixi.toml`,
-`pyproject.toml`, or `conda.lock` changes.
+Clears the package cache and refreshes regular environments, workspace
+environments, and workspace task discovery. Conda Code also schedules refreshes
+when `conda.toml`, `pixi.toml`, `pyproject.toml`, or `conda.lock` changes.
 
 Project creation inputs such as `environment.yml`, `explicit.txt`, and
 `conda-lock.yml` are not watched.

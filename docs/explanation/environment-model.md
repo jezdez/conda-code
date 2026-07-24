@@ -21,11 +21,12 @@ commands so changes remain represented by the project.
 
 ::::
 
-## `conda env` and regular conda environments
+## Core commands and `conda env`
 
-`conda env` is a CLI surface over the same named and prefix environments used
-by core conda commands. Conda Code does not define a separate `conda env`
-environment type.
+Conda Code uses core commands such as `conda info`, `conda create`,
+`conda list`, and `conda remove`. The `conda env` command group refers to the
+same named and prefix environments, but Conda Code does not use it or define a
+separate `conda env` environment type.
 
 The base environment, named environments, and project `.conda` prefixes are all
 regular conda prefixes. They contain `conda-meta` package records and can be

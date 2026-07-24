@@ -11,7 +11,7 @@ Complete the [](../quickstart.md). Open a local folder named
 Make sure no environment with that name already exists:
 
 ```console
-conda env list
+conda info --envs
 ```
 
 ## Add the environment file

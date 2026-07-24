@@ -7,6 +7,7 @@ When Pixi Code is installed, Conda Code:
 
 - ignores `pixi.toml` workspace candidates
 - ignores `pyproject.toml` projects with a `[tool.pixi]` table
+- does not publish tasks from either ignored manifest
 - excludes prefixes below `.pixi/envs` from regular conda discovery
 - refuses to quick-create `conda.toml` in a Pixi project
 

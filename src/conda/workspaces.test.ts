@@ -131,6 +131,40 @@ test('read methods issue the documented JSON commands', async () => {
   );
 });
 
+test('listTasks delegates JSON discovery to conda task', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const runner = new RecordingRunner(() =>
+    success({
+      tasks: {
+        docs: {
+          name: 'docs',
+          description: 'Build documentation',
+          cmd: 'sphinx-build docs build',
+        },
+      },
+      file: manifest,
+    }),
+  );
+  const client = new CondaWorkspacesClient({
+    runner,
+    condaExecutable: '/custom/conda',
+  });
+
+  assert.deepEqual(await client.listTasks(manifest), {
+    file: manifest,
+    tasks: [{ name: 'docs', description: 'Build documentation' }],
+  });
+  assert.deepEqual(runner.calls[0], {
+    executable: '/custom/conda',
+    args: ['task', '--file', manifest, 'list', '--json'],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: path.dirname(manifest),
+    },
+  });
+});
+
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const defaultPrefix = path.resolve('/work/.conda/default');

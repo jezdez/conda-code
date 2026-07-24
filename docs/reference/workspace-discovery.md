@@ -9,7 +9,8 @@ Conda Code searches local workspaces for:
 3. `pyproject.toml`
 
 The order above is the priority when more than one candidate exists in a
-directory. At most one workspace is published for that directory.
+directory. At most one workspace is published for that directory, and only
+that selected manifest contributes tasks. See [](workspace-tasks.md).
 
 The search excludes `.git`, `.conda`, `.pixi`, and `node_modules`.
 
@@ -36,6 +37,8 @@ When `renan-r-santos.pixi-code` is installed, Conda Code skips:
 
 `conda.toml` remains eligible.
 
+Skipped manifests contribute neither environments nor tasks.
+
 ## Prefix routing
 
 Each published workspace environment records its manifest, project, environment
@@ -56,4 +59,4 @@ Conda Code watches:
 
 Changes schedule a refresh. The manual
 **Conda Code: Refresh Environments** command clears package data and refreshes
-all sources immediately.
+environment and task sources immediately.

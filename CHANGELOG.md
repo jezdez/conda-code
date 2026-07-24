@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Expose conda-workspaces tasks through the native VS Code task interface and
+  honor the selected Conda Code workspace environment
+- Add the official conda logo as the extension icon
+
 ## 0.1.1
 
 - Avoid spawning a conda process for every Python environment resolution request

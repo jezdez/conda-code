@@ -1,11 +1,22 @@
 import { PythonEnvironments } from '@vscode/python-environments';
-import { commands, Disposable, ExtensionContext, extensions, Uri, window, workspace } from 'vscode';
+import {
+  commands,
+  Disposable,
+  ExtensionContext,
+  extensions,
+  tasks as vscodeTasks,
+  Uri,
+  window,
+  workspace,
+} from 'vscode';
 
 import { CondaClient } from './conda/conda';
 import { CondaEnvironmentManager } from './conda/environmentManager';
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
 import { CondaSelectionState } from './conda/selectionState';
+import { CONDA_WORKSPACE_TASK_TYPE, CondaWorkspaceTaskProvider } from './conda/tasks';
+import { normalizeEnvironmentPath } from './conda/workspaceRouting';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -15,6 +26,7 @@ const PIXI_CODE_EXTENSION_ID = 'renan-r-santos.pixi-code';
 interface CondaCodeRuntime extends Disposable {
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
+  readonly tasks: CondaWorkspaceTaskProvider;
 }
 
 function configuredCondaExecutable(): string {
@@ -47,6 +59,24 @@ export async function activate(context: ExtensionContext): Promise<void> {
   let runtime: CondaCodeRuntime | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const shouldHandleManifest = async (manifest: Uri): Promise<boolean> => {
+    if (extensions.getExtension(PIXI_CODE_EXTENSION_ID) === undefined) {
+      return true;
+    }
+    if (isPixiProjectManifest(manifest.fsPath)) {
+      return false;
+    }
+    if (!manifest.fsPath.toLowerCase().endsWith('pyproject.toml')) {
+      return true;
+    }
+    try {
+      const contents = new TextDecoder().decode(await workspace.fs.readFile(manifest));
+      return !isPixiProjectManifest(manifest.fsPath, contents);
+    } catch {
+      return true;
+    }
+  };
+
   const startRuntime = (): CondaCodeRuntime => {
     runtime?.dispose();
 
@@ -61,23 +91,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       managerId,
       {
         log,
-        shouldHandleManifest: async (manifest) => {
-          if (extensions.getExtension(PIXI_CODE_EXTENSION_ID) === undefined) {
-            return true;
-          }
-          if (isPixiProjectManifest(manifest.fsPath)) {
-            return false;
-          }
-          if (!manifest.fsPath.toLowerCase().endsWith('pyproject.toml')) {
-            return true;
-          }
-          try {
-            const contents = new TextDecoder().decode(await workspace.fs.readFile(manifest));
-            return !isPixiProjectManifest(manifest.fsPath, contents);
-          } catch {
-            return true;
-          }
-        },
+        shouldHandleManifest,
       },
     );
     const packages = new CondaPackageManager(api, conda, workspaces, environments, {
@@ -89,14 +103,37 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const environmentRegistration = api.registerEnvironmentManager(environments, {
       extensionId: context.extension.id,
     });
+    const taskProvider = new CondaWorkspaceTaskProvider(workspaces, condaExecutable, {
+      log,
+      listWorkspaceManifests: () => environments.getWorkspaceManifests(),
+      selectedWorkspaceEnvironment: async (manifest) => {
+        const selected = await api.getEnvironment(manifest);
+        if (selected === undefined || selected.envId.managerId !== managerId) {
+          return undefined;
+        }
+        const route = environments.getRoute(selected);
+        return route !== undefined &&
+          normalizeEnvironmentPath(route.manifestUri.fsPath) ===
+            normalizeEnvironmentPath(manifest.fsPath)
+          ? route.environmentName
+          : undefined;
+      },
+    });
+    const taskRegistration = vscodeTasks.registerTaskProvider(
+      CONDA_WORKSPACE_TASK_TYPE,
+      taskProvider,
+    );
 
     log.info(`Registered ${managerId} using ${condaExecutable}`);
     return {
       environments,
       packages,
+      tasks: taskProvider,
       dispose: () => {
+        taskRegistration.dispose();
         environmentRegistration.dispose();
         packageRegistration.dispose();
+        taskProvider.dispose();
         packages.dispose();
         environments.dispose();
       },
@@ -109,11 +146,14 @@ export async function activate(context: ExtensionContext): Promise<void> {
       return;
     }
 
+    current.tasks.refresh();
     try {
       await current.packages.clearCache();
       await current.environments.refresh(scope);
     } catch (error) {
       log.error(`Refresh failed: ${messageFromError(error)}`);
+    } finally {
+      current.tasks.refresh();
     }
   };
 
@@ -136,6 +176,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     watcher.onDidCreate(scheduleRefresh),
     watcher.onDidChange(scheduleRefresh),
     watcher.onDidDelete(scheduleRefresh),
+    api.onDidChangePythonProjects(() => scheduleRefresh()),
     commands.registerCommand('conda-code.refresh', () => refresh()),
     workspace.onDidChangeConfiguration((event) => {
       if (

@@ -11,6 +11,7 @@ import {
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
+  parseWorkspaceTasks,
 } from './parsers';
 
 test('parseCondaInfo normalizes the conda JSON fields', () => {
@@ -170,6 +171,41 @@ test('parseWorkspaceQuickstartResult reads only the created environment identity
   );
 });
 
+test('parseWorkspaceTasks reads task identities and descriptions', () => {
+  assert.deepEqual(
+    parseWorkspaceTasks(
+      JSON.stringify({
+        tasks: {
+          docs: {
+            name: 'docs',
+            cmd: 'sphinx-build docs build',
+            description: 'Build the documentation',
+          },
+          check: {
+            name: 'check',
+            depends_on: ['lint', 'test'],
+            alias: true,
+          },
+          clean: {
+            name: 'clean',
+            cmd: 'git clean -fdx',
+            source: 'user',
+          },
+        },
+        file: '/work/conda.toml',
+      }),
+    ),
+    {
+      file: '/work/conda.toml',
+      tasks: [
+        { name: 'docs', description: 'Build the documentation' },
+        { name: 'check' },
+        { name: 'clean', source: 'user' },
+      ],
+    },
+  );
+});
+
 test('parsers reject malformed fields with a useful path', () => {
   assert.throws(
     () =>
@@ -179,5 +215,17 @@ test('parsers reject malformed fields with a useful path', () => {
     (error: unknown) =>
       error instanceof CondaJsonParseError &&
       error.message.includes('conda workspace envs[0].installed'),
+  );
+  assert.throws(
+    () =>
+      parseWorkspaceTasks(
+        JSON.stringify({
+          tasks: { docs: { name: 'build' } },
+          file: '/work/conda.toml',
+        }),
+      ),
+    (error: unknown) =>
+      error instanceof CondaJsonParseError &&
+      error.message.includes('conda task list.tasks.docs.name'),
   );
 });

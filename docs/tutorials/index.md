@@ -27,8 +27,8 @@ Use a project file once to create a regular named environment.
 :link: workspace-environment
 :link-type: doc
 
-Create `conda.toml`, install its default environment, and add a declared
-dependency.
+Create `conda.toml`, install its default environment, add a declared dependency,
+and run a task through VS Code.
 :::
 
 ::::

@@ -48,6 +48,17 @@ export interface WorkspaceQuickstartResult {
   readonly manifest: string | null;
 }
 
+export interface WorkspaceTask {
+  readonly name: string;
+  readonly description?: string;
+  readonly source?: string;
+}
+
+export interface WorkspaceTaskList {
+  readonly file: string;
+  readonly tasks: readonly WorkspaceTask[];
+}
+
 type JsonRecord = Record<string, unknown>;
 
 export class CondaJsonParseError extends Error {
@@ -229,5 +240,29 @@ export function parseWorkspaceQuickstartResult(text: string): WorkspaceQuickstar
   return {
     environment: expectString(value.environment, `${path}.environment`),
     manifest: expectNullableString(value.manifest, `${path}.manifest`),
+  };
+}
+
+export function parseWorkspaceTasks(text: string): WorkspaceTaskList {
+  const path = 'conda task list';
+  const value = expectRecord(parseJson(text, path), path);
+  const tasks = expectRecord(value.tasks, `${path}.tasks`);
+  return {
+    file: expectString(value.file, `${path}.file`),
+    tasks: Object.entries(tasks).map(([key, item]) => {
+      const taskPath = `${path}.tasks.${key}`;
+      const task = expectRecord(item, taskPath);
+      const name = expectString(task.name, `${taskPath}.name`);
+      if (name !== key) {
+        throw new CondaJsonParseError(`${taskPath}.name must match its task key`);
+      }
+      const description = optionalString(task, 'description', taskPath);
+      const source = optionalString(task, 'source', taskPath);
+      return {
+        name,
+        ...(description === undefined ? {} : { description }),
+        ...(source === undefined ? {} : { source }),
+      };
+    }),
   };
 }
