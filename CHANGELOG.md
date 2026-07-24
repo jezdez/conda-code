@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Avoid spawning a conda process for every Python environment resolution request
+
 ## 0.1.0
 
 - Add a conda environment and package provider
