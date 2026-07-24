@@ -1,0 +1,17 @@
+.git/**
+.github/**
+.vscode/**
+.vscode-test/**
+.gitignore
+.nvmrc
+.prettierignore
+coverage/**
+eslint.config.mjs
+node_modules/**
+out/**
+package-lock.json
+prettier.config.mjs
+src/**
+*.vsix
+tsconfig.json
+webpack.config.cjs

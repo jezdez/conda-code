@@ -1,0 +1,101 @@
+{
+  "name": "conda-code",
+  "displayName": "Conda Code",
+  "description": "Project-scoped conda environments and package management for Visual Studio Code.",
+  "version": "0.1.0",
+  "publisher": "jezdez",
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/jezdez/conda-code#readme",
+  "bugs": {
+    "url": "https://github.com/jezdez/conda-code/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jezdez/conda-code.git"
+  },
+  "engines": {
+    "node": ">=22.21.1",
+    "vscode": "^1.118.0"
+  },
+  "categories": [
+    "Data Science",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "conda",
+    "conda-workspaces",
+    "environments",
+    "python"
+  ],
+  "extensionDependencies": [
+    "ms-python.vscode-python-envs"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:python",
+    "workspaceContains:**/conda.toml",
+    "workspaceContains:**/pixi.toml",
+    "workspaceContains:**/pyproject.toml"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Conda Code executes the configured Conda executable."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Conda Code requires local manifests and environment prefixes."
+    }
+  },
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "conda-code.refresh",
+        "title": "Conda Code: Refresh Workspace Environments"
+      }
+    ],
+    "configuration": {
+      "title": "Conda Code",
+      "properties": {
+        "conda-code.condaExecutable": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
+          "scope": "machine-overridable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack --mode development",
+    "package": "webpack --mode production",
+    "vsix": "vsce package --out dist/conda-code.vsix",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "lint": "eslint src",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@vscode/python-environments": "1.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "22.20.1",
+    "@types/vscode": "1.118.0",
+    "@vscode/vsce": "3.9.2",
+    "eslint": "9.39.5",
+    "prettier": "3.9.6",
+    "ts-loader": "9.5.4",
+    "tsx": "4.23.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0",
+    "webpack": "5.109.0",
+    "webpack-cli": "6.0.1"
+  }
+}
