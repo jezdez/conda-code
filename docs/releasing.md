@@ -16,15 +16,17 @@ This setup is required once.
    credential for **GitHub Actions deploying Azure resources** with these
    values:
 
-   | Field        | Value                |
-   | ------------ | -------------------- |
-   | Organization | `jezdez`             |
-   | Repository   | `conda-code`         |
-   | Entity type  | `Environment`        |
-   | Environment  | `vscode-marketplace` |
+   | Field           | Value                |
+   | --------------- | -------------------- |
+   | Organization    | `jezdez`             |
+   | Organization ID | `1610`               |
+   | Repository      | `conda-code`         |
+   | Repository ID   | `1311183246`         |
+   | Entity type     | `Environment`        |
+   | Environment     | `vscode-marketplace` |
 
    The resulting subject must be
-   `repo:jezdez/conda-code:environment:vscode-marketplace`.
+   `repo:jezdez@1610/conda-code@1311183246:environment:vscode-marketplace`.
 
 3. Add the two non-secret IDs to the `vscode-marketplace` GitHub environment.
    The environment is restricted to `main` and `*.*.*` tags:
