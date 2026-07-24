@@ -100,6 +100,9 @@ With
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) installed
 in the configured conda base environment, Conda Code can create exact named
 environments from project-root `conda-lock.yml` and `conda-lock.yaml` files.
+Conda-lockfiles also lets conda consume `pixi.lock`. Conda Code leaves that
+file with its Pixi project instead of offering it as a standalone environment
+input.
 Follow the
 [conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
 using the channels configured for your conda distribution.
