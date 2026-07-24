@@ -1,7 +1,7 @@
 {
   "name": "conda-code",
   "displayName": "Conda Code",
-  "description": "Project-scoped conda environments and package management for Visual Studio Code.",
+  "description": "Conda environments, workspaces, and package management for Visual Studio Code.",
   "version": "0.1.0",
   "publisher": "jezdez",
   "license": "BSD-3-Clause",
@@ -55,7 +55,7 @@
     "commands": [
       {
         "command": "conda-code.refresh",
-        "title": "Conda Code: Refresh Workspace Environments"
+        "title": "Conda Code: Refresh Environments"
       }
     ],
     "configuration": {

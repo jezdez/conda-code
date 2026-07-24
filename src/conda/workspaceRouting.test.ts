@@ -5,12 +5,13 @@ import test from 'node:test';
 import type { PythonEnvironment } from '@vscode/python-environments';
 import type { Memento, Uri } from 'vscode';
 
-import { CondaWorkspaceSelectionState } from './selectionState';
+import { CondaSelectionState, CondaWorkspaceSelectionState } from './selectionState';
 import {
   CompositeWorkspaceEnvironmentError,
   CondaWorkspaceRoute,
   CondaWorkspaceRouteRegistry,
   dependencyFeature,
+  reconcileWorkspaceRouteClaims,
 } from './workspaceRouting';
 
 function uri(fsPath: string): Uri {
@@ -53,6 +54,22 @@ test('selection state persists only project environment prefixes', async () => {
   assert.equal(await selections.get(project), undefined);
 });
 
+test('general selection state supports global and project selections', async () => {
+  const state = memory();
+  const project = uri('/work/demo');
+  const selections = new CondaSelectionState(state);
+
+  await selections.set(undefined, '/opt/conda');
+  await selections.set(project, '/opt/conda/envs/demo');
+
+  assert.equal(await selections.get(undefined), '/opt/conda');
+  assert.equal(await selections.get(project), '/opt/conda/envs/demo');
+  assert.deepEqual(await selections.entries(), {
+    global: '/opt/conda',
+    [project.toString(true)]: '/opt/conda/envs/demo',
+  });
+});
+
 test('route registry resolves prefixes and Python executables privately', () => {
   const registry = new CondaWorkspaceRouteRegistry();
   const project = uri('/work/demo');
@@ -71,7 +88,7 @@ test('route registry resolves prefixes and Python executables privately', () => 
     environmentPath: uri(route.prefix),
     envId: {
       id: route.prefix,
-      managerId: 'jezdez.conda-code:conda-workspaces',
+      managerId: 'jezdez.conda-code:conda',
     },
   } as PythonEnvironment;
   assert.equal(registry.getRoute(environment), route);
@@ -79,6 +96,87 @@ test('route registry resolves prefixes and Python executables privately', () => 
 
   registry.replaceProject(project, []);
   assert.equal(registry.getRoute(environment), undefined);
+});
+
+test('route registry leaves multiply claimed prefixes unowned', () => {
+  const registry = new CondaWorkspaceRouteRegistry();
+  const sharedPrefix = path.resolve('/shared/env');
+  const first: CondaWorkspaceRoute = {
+    projectUri: uri('/work/first'),
+    manifestUri: uri('/work/first/conda.toml'),
+    environmentName: 'default',
+    features: [],
+    directCondaDependencies: ['python'],
+    prefix: sharedPrefix,
+    pythonPath: path.join(sharedPrefix, 'bin', 'python'),
+  };
+  const second: CondaWorkspaceRoute = {
+    ...first,
+    projectUri: uri('/work/second'),
+    manifestUri: uri('/work/second/conda.toml'),
+  };
+
+  registry.replaceAll([first, second]);
+  assert.equal(registry.getRouteByPrefix(sharedPrefix), undefined);
+  assert.equal(registry.isConflictedPrefix(sharedPrefix), true);
+
+  registry.replaceAll([first]);
+  assert.equal(registry.getRouteByPrefix(sharedPrefix), first);
+  assert.equal(registry.isConflictedPrefix(sharedPrefix), false);
+});
+
+test('failed workspace discovery preserves its previous prefix claim', () => {
+  const manifest = '/work/demo/conda.toml';
+  const route: CondaWorkspaceRoute = {
+    projectUri: uri('/work/demo'),
+    manifestUri: uri(manifest),
+    environmentName: 'default',
+    features: [],
+    directCondaDependencies: ['python'],
+    prefix: path.resolve('/work/demo/.conda/envs/default'),
+    pythonPath: path.resolve('/work/demo/.conda/envs/default/bin/python'),
+  };
+
+  const claims = reconcileWorkspaceRouteClaims(
+    new Map(),
+    new Set([manifest]),
+    new Map([[manifest, [route]]]),
+  );
+
+  assert.deepEqual(claims.get(manifest), [route]);
+});
+
+test('a failed claimant keeps a shared prefix conflicted', () => {
+  const sharedPrefix = path.resolve('/shared/env');
+  const firstManifest = '/work/first/conda.toml';
+  const secondManifest = '/work/second/conda.toml';
+  const first: CondaWorkspaceRoute = {
+    projectUri: uri('/work/first'),
+    manifestUri: uri(firstManifest),
+    environmentName: 'default',
+    features: [],
+    directCondaDependencies: ['python'],
+    prefix: sharedPrefix,
+    pythonPath: path.join(sharedPrefix, 'bin', 'python'),
+  };
+  const second: CondaWorkspaceRoute = {
+    ...first,
+    projectUri: uri('/work/second'),
+    manifestUri: uri(secondManifest),
+  };
+  const claims = reconcileWorkspaceRouteClaims(
+    new Map([[secondManifest, [second]]]),
+    new Set([firstManifest]),
+    new Map([
+      [firstManifest, [first]],
+      [secondManifest, [second]],
+    ]),
+  );
+  const registry = new CondaWorkspaceRouteRegistry();
+  registry.replaceAll([...claims.values()].flat());
+
+  assert.equal(registry.isConflictedPrefix(sharedPrefix), true);
+  assert.equal(registry.getRouteByPrefix(sharedPrefix), undefined);
 });
 
 test('dependency feature routing is deterministic and rejects composites', () => {

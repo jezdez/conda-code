@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   CondaJsonParseError,
   parseCondaInfo,
+  parseCondaMutationPrefix,
+  parseCondaPackages,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
   parseWorkspaceInfo,
@@ -24,6 +26,10 @@ test('parseCondaInfo normalizes the conda JSON fields', () => {
       active_prefix: null,
       active_prefix_name: null,
       envs: ['/opt/conda', '/work/.conda/envs/default'],
+      envs_details: {
+        '/opt/conda': { name: 'base', ignored: true },
+        '/work/.conda/envs/default': { name: '' },
+      },
       ignored_forward_compatible_field: true,
     }),
   );
@@ -38,7 +44,47 @@ test('parseCondaInfo normalizes the conda JSON fields', () => {
     activePrefix: null,
     activePrefixName: null,
     envs: ['/opt/conda', '/work/.conda/envs/default'],
+    envsDetails: {
+      '/opt/conda': { name: 'base' },
+      '/work/.conda/envs/default': { name: '' },
+    },
   });
+});
+
+test('parseCondaPackages keeps package build and channel details', () => {
+  assert.deepEqual(
+    parseCondaPackages(
+      JSON.stringify([
+        {
+          name: 'python',
+          version: '3.13.5',
+          build_string: 'h123_0',
+          channel: 'conda-forge',
+          platform: 'noarch',
+          ignored: true,
+        },
+        { name: 'local-package', version: '1.0' },
+      ]),
+    ),
+    [
+      {
+        name: 'python',
+        version: '3.13.5',
+        build: 'h123_0',
+        channel: 'conda-forge',
+        platform: 'noarch',
+      },
+      { name: 'local-package', version: '1.0', build: '' },
+    ],
+  );
+});
+
+test('parseCondaMutationPrefix accepts current and legacy conda result shapes', () => {
+  assert.equal(parseCondaMutationPrefix(JSON.stringify({ prefix: '/envs/demo' })), '/envs/demo');
+  assert.equal(
+    parseCondaMutationPrefix(JSON.stringify({ actions: { PREFIX: '/envs/legacy' } })),
+    '/envs/legacy',
+  );
 });
 
 test('parseWorkspaceInfo preserves lockfile status details', () => {

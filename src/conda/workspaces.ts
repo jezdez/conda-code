@@ -100,13 +100,35 @@ export class CondaCommandError extends Error {
 
   public constructor(executable: string, args: readonly string[], result: CommandResult) {
     const detail =
-      firstLine(result.stderr) ?? firstLine(result.stdout) ?? `exit code ${result.exitCode}`;
+      structuredError(result.stdout) ??
+      firstLine(result.stderr) ??
+      firstLine(result.stdout) ??
+      `exit code ${result.exitCode}`;
     super(`${executable} failed with ${detail}`);
     this.name = 'CondaCommandError';
     this.executable = executable;
     this.args = args;
     this.result = result;
   }
+}
+
+function structuredError(text: string): string | undefined {
+  try {
+    const value = JSON.parse(text) as unknown;
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+    const record = value as Record<string, unknown>;
+    for (const key of ['message', 'error']) {
+      const detail = record[key];
+      if (typeof detail === 'string' && detail.trim() !== '') {
+        return detail.trim().slice(0, 500);
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }
 
 function firstLine(text: string): string | undefined {

@@ -22,6 +22,13 @@ export class CompositeWorkspaceEnvironmentError extends Error {
   }
 }
 
+export class CondaWorkspaceRouteConflictError extends Error {
+  public constructor(prefix: string) {
+    super(`Multiple conda workspace manifests claim the prefix ${prefix}`);
+    this.name = 'CondaWorkspaceRouteConflictError';
+  }
+}
+
 export function dependencyFeature(
   environmentName: string,
   features: readonly string[],
@@ -39,6 +46,25 @@ export interface CondaWorkspaceRouteResolver {
 export interface CondaWorkspaceRouteManager extends CondaWorkspaceRouteResolver {
   refresh(scope: Uri): Promise<void>;
   getEnvironmentForRoute(route: CondaWorkspaceRoute): PythonEnvironment | undefined;
+  getEnvironmentForPrefix(prefix: string): PythonEnvironment | undefined;
+  isConflictedPrefix(prefix: string): boolean;
+}
+
+export function reconcileWorkspaceRouteClaims(
+  current: ReadonlyMap<string, readonly CondaWorkspaceRoute[]>,
+  failedManifests: ReadonlySet<string>,
+  previous: ReadonlyMap<string, readonly CondaWorkspaceRoute[]>,
+): Map<string, readonly CondaWorkspaceRoute[]> {
+  const reconciled = new Map(current);
+  for (const manifest of failedManifests) {
+    if (!reconciled.has(manifest)) {
+      const preserved = previous.get(manifest);
+      if (preserved !== undefined) {
+        reconciled.set(manifest, preserved);
+      }
+    }
+  }
+  return reconciled;
 }
 
 export function normalizeEnvironmentPath(value: string): string {
@@ -57,6 +83,35 @@ function projectKey(project: Uri): string {
 export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver {
   private readonly routesByPrefix = new Map<string, CondaWorkspaceRoute>();
   private readonly prefixesByProject = new Map<string, Set<string>>();
+  private readonly conflictedPrefixes = new Set<string>();
+
+  replaceAll(routes: readonly CondaWorkspaceRoute[]): void {
+    this.clear();
+
+    const routesByPrefix = new Map<string, CondaWorkspaceRoute[]>();
+    for (const route of routes) {
+      const prefixKey = normalizeEnvironmentPath(route.prefix);
+      const entries = routesByPrefix.get(prefixKey) ?? [];
+      entries.push(route);
+      routesByPrefix.set(prefixKey, entries);
+    }
+
+    for (const [prefixKey, entries] of routesByPrefix) {
+      if (entries.length !== 1) {
+        this.conflictedPrefixes.add(prefixKey);
+        continue;
+      }
+      const route = entries[0];
+      if (route === undefined) {
+        continue;
+      }
+      this.routesByPrefix.set(prefixKey, route);
+      const key = projectKey(route.projectUri);
+      const projectPrefixes = this.prefixesByProject.get(key) ?? new Set<string>();
+      projectPrefixes.add(prefixKey);
+      this.prefixesByProject.set(key, projectPrefixes);
+    }
+  }
 
   replaceProject(project: Uri, routes: readonly CondaWorkspaceRoute[]): void {
     this.removeProject(project);
@@ -85,6 +140,10 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
 
   getRouteByPrefix(prefix: string): CondaWorkspaceRoute | undefined {
     return this.routesByPrefix.get(normalizeEnvironmentPath(prefix));
+  }
+
+  isConflictedPrefix(prefix: string): boolean {
+    return this.conflictedPrefixes.has(normalizeEnvironmentPath(prefix));
   }
 
   getRouteByContext(context: Uri): CondaWorkspaceRoute | undefined {
@@ -121,5 +180,6 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
   clear(): void {
     this.routesByPrefix.clear();
     this.prefixesByProject.clear();
+    this.conflictedPrefixes.clear();
   }
 }

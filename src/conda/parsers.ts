@@ -8,6 +8,19 @@ export interface CondaInfo {
   readonly activePrefix: string | null;
   readonly activePrefixName: string | null;
   readonly envs: readonly string[];
+  readonly envsDetails: Readonly<Record<string, CondaEnvironmentDetails>>;
+}
+
+export interface CondaEnvironmentDetails {
+  readonly name: string;
+}
+
+export interface CondaPackageRecord {
+  readonly name: string;
+  readonly version: string;
+  readonly build: string;
+  readonly channel?: string;
+  readonly platform?: string;
 }
 
 export interface WorkspaceInfo {
@@ -135,6 +148,23 @@ function expectStringRecord(value: unknown, path: string): Readonly<Record<strin
   );
 }
 
+function parseCondaEnvironmentDetails(
+  value: unknown,
+): Readonly<Record<string, CondaEnvironmentDetails>> {
+  if (value === undefined) {
+    return {};
+  }
+
+  const details = expectRecord(value, 'conda info.envs_details');
+  return Object.fromEntries(
+    Object.entries(details).map(([prefix, item]) => {
+      const path = `conda info.envs_details.${prefix}`;
+      const record = expectRecord(item, path);
+      return [prefix, { name: optionalString(record, 'name', path) ?? '' }];
+    }),
+  );
+}
+
 function expectNullableString(value: unknown, path: string): string | null {
   if (value === null) {
     return null;
@@ -165,7 +195,34 @@ export function parseCondaInfo(text: string): CondaInfo {
       'conda info.active_prefix_name',
     ),
     envs: expectStringArray(value.envs, 'conda info.envs'),
+    envsDetails: parseCondaEnvironmentDetails(value.envs_details),
   };
+}
+
+export function parseCondaPackages(text: string): readonly CondaPackageRecord[] {
+  return expectArray(parseJson(text, 'conda list'), 'conda list').map((item, index) => {
+    const path = `conda list[${index}]`;
+    const value = expectRecord(item, path);
+    const channel = optionalString(value, 'channel', path);
+    const platform = optionalString(value, 'platform', path);
+    return {
+      name: expectString(value.name, `${path}.name`),
+      version: expectString(value.version, `${path}.version`),
+      build: optionalString(value, 'build_string', path) ?? '',
+      ...(channel === undefined ? {} : { channel }),
+      ...(platform === undefined ? {} : { platform }),
+    };
+  });
+}
+
+export function parseCondaMutationPrefix(text: string): string {
+  const value = expectRecord(parseJson(text, 'conda mutation'), 'conda mutation');
+  if (value.prefix !== undefined) {
+    return expectString(value.prefix, 'conda mutation.prefix');
+  }
+
+  const actions = expectRecord(value.actions, 'conda mutation.actions');
+  return expectString(actions.PREFIX, 'conda mutation.actions.PREFIX');
 }
 
 export function parseWorkspaceInfo(text: string): WorkspaceInfo {

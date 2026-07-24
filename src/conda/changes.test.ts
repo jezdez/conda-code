@@ -7,7 +7,7 @@ import { diffEnvironments, diffPackages } from './changes';
 
 function environment(id: string): PythonEnvironment {
   return {
-    envId: { id, managerId: 'jezdez.conda-code:conda-workspaces' },
+    envId: { id, managerId: 'jezdez.conda-code:conda' },
   } as PythonEnvironment;
 }
 
@@ -19,7 +19,7 @@ function pkg(name: string, version: string, build: string, isTransitive = false)
     description: `Build ${build}`,
     pkgId: {
       id: name,
-      managerId: 'jezdez.conda-code:conda-workspaces',
+      managerId: 'jezdez.conda-code:conda',
       environmentId: '/workspace/.conda/envs/default',
     },
     isTransitive,

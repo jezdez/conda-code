@@ -1,99 +1,159 @@
 # Conda Code
 
-Conda Code adds project-scoped conda environments and package management to the
+Conda Code provides conda environment and package management through the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
+It defines its own conda provider for regular environments and adds
+[conda-workspaces](https://github.com/conda-incubator/conda-workspaces) as a
+project-aware layer.
 
-It uses [conda-workspaces](https://github.com/conda-incubator/conda-workspaces)
-for project manifests, environment creation, package operations, and lockfiles.
-Regular named and prefix environments remain available through the conda support
-built into Python Environments.
+The registered environment manager and package manager ID is
+`jezdez.conda-code:conda`.
 
 ## Features
+
+### Regular conda environments
+
+These are standard conda prefixes. The `conda env` command is another CLI
+surface over the same environment model. Conda Code discovers those prefixes
+through `conda info --json` and does not introduce a separate regular environment
+format.
+
+- Discover the base environment and registered named or prefix environments from
+  `conda info --json`
+- Read Python metadata directly from each prefix without starting its interpreter
+- Keep environments without Python visible so they can be repaired or managed
+- Create named environments
+- Create a project environment at `.conda`
+- Remove named environments and project `.conda` prefixes while protecting base
+  installations and unowned prefixes
+- List, install, update, and remove packages with the configured conda executable
+- Show conda-owned records, including conda-pypi packages, without claiming raw
+  pip-only distributions
+- Resolve environments by prefix or Python executable
+- Persist global and project selections
+- Run Python directly or activate it with hooks from the configured conda root
+
+### Conda workspaces
 
 - Find `conda.toml`, `pixi.toml`, and compatible `pyproject.toml` manifests at
   registered Python project roots
 - Validate candidates through `conda workspace info --json`
-- Publish installed workspace environments that contain Python
-- Route and persist environments by their absolute prefix
-- Persist the selected environment for each project
-- Run Python directly from the workspace prefix
-- Install a declared environment or bootstrap a new `conda.toml`
-- Clean a workspace prefix while retaining its manifest declaration
-- List, add, and remove dependencies through the workspace CLI
+- Publish installed workspace environments, including environments that do not
+  yet contain Python
+- Install declared environments and clean their prefixes without deleting the
+  manifest declaration
+- Create a new `conda.toml` project through quick create
+- List packages and change direct conda dependencies through the workspace CLI
 - Refresh when a manifest or `conda.lock` changes
 
-## Plugin boundaries
+Workspace metadata is an overlay on the regular conda provider. A normalized
+prefix has one Conda Code identity. When exactly one workspace owns that prefix,
+workspace lifecycle and dependency operations take precedence over regular conda
+environment removal and package changes.
 
-| Component          | Managed resources                                    | Extension treatment                      |
-| ------------------ | ---------------------------------------------------- | ---------------------------------------- |
-| `conda-workspaces` | Project manifests, environments, features, and tasks | Python environment and package provider  |
-| `conda-pypi`       | PyPI dependency translation and installation         | Used through conda-workspaces            |
-| `conda-lockfiles`  | Exact environment reproduction                       | Kept behind the workspace and conda CLIs |
-| `conda-exec`       | Ephemeral or cached command execution                | Never published as Python environments   |
-| `conda-global`     | Persistent isolated tools and PATH trampolines       | Not published as project environments    |
+When multiple workspace manifests claim the same prefix, Conda Code withholds
+that prefix and refuses lifecycle or package mutations until ownership is
+unambiguous.
 
-Lockfiles remain an implementation detail of conda-workspaces. The extension
-does not parse or rewrite them.
+## Ownership boundaries
 
-[conda-pypi](https://github.com/conda/conda-pypi) is an optional implementation
-dependency of conda-workspaces for workspace `[pypi-dependencies]`. Conda Code
-leaves their resolution and installation to conda-workspaces. Package changes
-initiated from the Python Environments view target conda dependencies.
+### conda-pypi
 
-[conda-exec](https://github.com/conda-incubator/conda-exec) and
-[conda-global](https://github.com/conda-incubator/conda-global) belong to
-different lifecycles. Conda-exec cache prefixes are ephemeral execution details.
-Conda-global prefixes are persistent, but they are isolated containers for tools
-published through PATH trampolines. The extension does not publish either kind
-as Python environments, even when a prefix happens to contain Python.
-Conda-global prefixes can also appear through stock conda discovery, so
-registering them again would produce duplicate entries and conflicting lifecycle
-actions.
+[conda-pypi](https://github.com/conda/conda-pypi) composes with Conda Code through
+the configured conda installation. Its primary workflow produces ordinary conda
+records, so those packages remain visible and manageable through the regular
+conda CLI. Raw pip-only distributions are outside this package manager.
 
-Dependency changes target the default feature or a single named feature.
-Composite environments are left unchanged because package operations require
-one target feature.
+For workspace `[pypi-dependencies]`, Conda Code leaves resolution and installation
+to conda-workspaces and conda-pypi. Package changes initiated from the Python
+Environments view target conda dependencies.
 
-Conda Code runs the interpreter directly. It does not register terminal
-activation because `conda workspace shell` starts a blocking nested shell.
+### conda-global
+
+[conda-global](https://github.com/conda-incubator/conda-global) owns persistent
+isolated tool environments and PATH trampolines. Conda Code follows
+conda-global's precedence and does not publish prefixes below its active
+environment root:
+
+1. `$CONDA_GLOBAL_HOME/envs` when configured
+2. `~/.conda/global/envs` after migration or for a new installation
+3. `~/.cg/envs` for an existing legacy installation
+
+This keeps tool installation and removal under conda-global.
+
+### Pixi Code
+
+Conda Code and
+[Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
+can be installed together. Conda Code excludes `.pixi/envs` from regular conda
+discovery. When Pixi Code is installed, Conda Code also leaves `pixi.toml` and
+`[tool.pixi]` projects to Pixi Code while continuing to own `conda.toml` and
+non-Pixi conda-workspaces projects.
+
+The extensions are not declared incompatible.
+
+## Python Environments built-in conda provider
+
+Python Environments currently registers `ms-python.python:conda`
+unconditionally. Its public API does not provide a supported way for another
+extension to replace, hide, or disable that manager, and it does not deduplicate
+prefixes across managers.
+
+Conda Code does not call or delegate to that implementation. Until Python
+Environments adds a provider replacement or ownership API, both conda provider
+branches can appear in the environment view. Select `jezdez.conda-code:conda` as
+`python-envs.defaultEnvManager` or as the `envManager` for a
+`python-envs.pythonProjects` entry to route project operations through Conda
+Code.
+
+## Creation behavior
+
+- Quick create in a normal project creates `conda.toml` and installs the default
+  workspace environment
+- Create in an existing conda workspace installs a declared environment that is
+  not installed yet
+- Interactive project creation offers a conda workspace, a regular `.conda`
+  prefix, or a named environment
+- Global and multi-project creation creates a named environment
+- Quick global and multi-project creation generates an available name without a
+  prompt
+- Quick create and newly declared environments include Python unless the
+  requested package list or existing workspace declaration already contains a
+  Python specification
+
+## Execution and activation
+
+Python execution uses the absolute interpreter inside the prefix. For Bash, Zsh,
+POSIX sh, Fish, PowerShell, Git Bash, and Command Prompt, regular environments
+advertise shell-specific activation commands that load hooks from the configured
+conda root before activation. Other shells use direct interpreter execution.
+
+Workspace environments use direct interpreter execution. Conda Code does not
+advertise `conda workspace shell` as terminal activation because that command
+starts a nested blocking shell.
 
 ## Requirements
 
 - Visual Studio Code 1.118 or newer
 - Python Environments
 - conda 26.3 or newer
-- conda-workspaces 0.7 or newer installed in the selected conda installation
-- For workspace PyPI dependencies, conda-pypi 0.9 or newer and
-  conda-rattler-solver 0.0.6 or newer
 - A local file workspace
+- conda-workspaces 0.7 or newer for workspace features
+- conda-pypi 0.9 or newer and conda-rattler-solver 0.0.6 or newer for workspace
+  PyPI dependencies
 
 Set `conda-code.condaExecutable` when the desired conda is not available through
 `CONDA_EXE`, the Python extension's `python.condaPath` setting, or `PATH`.
 
 ## Usage
 
-Open a local project containing `conda.toml`, `pixi.toml`, or a compatible
-`pyproject.toml`. Conda Code validates the manifest and publishes its installed
-Python environments in the Python Environments view.
+Install Conda Code and open the Python Environments view. The Conda Code provider
+lists regular conda environments immediately. Opening a registered Python project
+with a supported workspace manifest adds its installed workspace environments to
+the same provider.
 
-Use the Python Environments view to select an environment, install a declared
-environment, create a new conda workspace, or manage dependencies. Run
-`Conda Code: Refresh Workspace Environments` after an external change when an
-automatic refresh is not sufficient.
-
-Conda Code can read Pixi-compatible manifests through conda-workspaces. Use one
-environment provider for each Pixi project. Use either Pixi Code or Conda Code
-for a Pixi project. Disable the other extension for that workspace.
-
-## Supported behavior
-
-- Local file workspaces
-- Manifests at registered Python project roots
-- Installed workspace environments containing Python
-- Dependency changes for the default feature or one named feature
-- Existing workspace PyPI dependencies through conda-workspaces and conda-pypi
-- Direct interpreter execution without terminal activation
-- Project environments only, excluding conda-exec caches and conda-global tools
+Run `Conda Code: Refresh Environments` after an external change when automatic
+manifest refresh is not sufficient.
 
 ## Development
 

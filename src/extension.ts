@@ -1,17 +1,20 @@
 import { PythonEnvironments } from '@vscode/python-environments';
-import { commands, Disposable, ExtensionContext, Uri, window, workspace } from 'vscode';
+import { commands, Disposable, ExtensionContext, extensions, Uri, window, workspace } from 'vscode';
 
-import { CondaWorkspaceEnvironmentManager } from './conda/environmentManager';
-import { CondaWorkspacePackageManager } from './conda/packageManager';
-import { CondaWorkspaceSelectionState } from './conda/selectionState';
+import { CondaClient } from './conda/conda';
+import { CondaEnvironmentManager } from './conda/environmentManager';
+import { isPixiProjectManifest } from './conda/manifestOwnership';
+import { CondaPackageManager } from './conda/packageManager';
+import { CondaSelectionState } from './conda/selectionState';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
 const REFRESH_DELAY_MS = 150;
+const PIXI_CODE_EXTENSION_ID = 'renan-r-santos.pixi-code';
 
 interface CondaCodeRuntime extends Disposable {
-  readonly environments: CondaWorkspaceEnvironmentManager;
-  readonly packages: CondaWorkspacePackageManager;
+  readonly environments: CondaEnvironmentManager;
+  readonly packages: CondaPackageManager;
 }
 
 function configuredCondaExecutable(): string {
@@ -39,8 +42,8 @@ function messageFromError(error: unknown): string {
 export async function activate(context: ExtensionContext): Promise<void> {
   const api = await PythonEnvironments.api();
   const log = window.createOutputChannel('Conda Code', { log: true });
-  const selectionState = new CondaWorkspaceSelectionState(context.workspaceState);
-  const managerId = `${context.extension.id}:conda-workspaces`;
+  const selectionState = new CondaSelectionState(context.workspaceState);
+  const managerId = `${context.extension.id}:conda`;
   let runtime: CondaCodeRuntime | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -48,15 +51,36 @@ export async function activate(context: ExtensionContext): Promise<void> {
     runtime?.dispose();
 
     const condaExecutable = configuredCondaExecutable();
-    const client = new CondaWorkspacesClient({ condaExecutable });
-    const environments = new CondaWorkspaceEnvironmentManager(
+    const conda = new CondaClient({ condaExecutable });
+    const workspaces = new CondaWorkspacesClient({ condaExecutable });
+    const environments = new CondaEnvironmentManager(
       api,
-      client,
+      conda,
+      workspaces,
       selectionState,
       managerId,
-      { log },
+      {
+        log,
+        shouldHandleManifest: async (manifest) => {
+          if (extensions.getExtension(PIXI_CODE_EXTENSION_ID) === undefined) {
+            return true;
+          }
+          if (isPixiProjectManifest(manifest.fsPath)) {
+            return false;
+          }
+          if (!manifest.fsPath.toLocaleLowerCase().endsWith('pyproject.toml')) {
+            return true;
+          }
+          try {
+            const contents = new TextDecoder().decode(await workspace.fs.readFile(manifest));
+            return !isPixiProjectManifest(manifest.fsPath, contents);
+          } catch {
+            return true;
+          }
+        },
+      },
     );
-    const packages = new CondaWorkspacePackageManager(api, client, environments, {
+    const packages = new CondaPackageManager(api, conda, workspaces, environments, {
       log,
     });
     const packageRegistration = api.registerPackageManager(packages, {
