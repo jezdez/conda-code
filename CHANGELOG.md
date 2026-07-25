@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+- Discover multiple conda installations, match Base, Named, and Prefix
+  classification, load activation hooks from each owning installation, and
+  route package changes and safe deletion through each owning `conda` executable
+- Keep ordinary regular-environment refresh process-free, reuse unchanged
+  filesystem discovery, coalesce overlapping refreshes, and load cached conda
+  details through nonblocking background enrichment
+- Watch and fingerprint configuration files reported by conda, conda
+  environment inputs, and executable identity, then force one coalesced
+  background enrichment after changes, with explicit refresh and cache-age
+  fallbacks
+- Use only owning `conda` executables for operations and keep removal and
+  provider exclusions safe across custom environment directories and path
+  aliases
+
 ## 0.2.1
 
 - Show installed packages under environments with Python Environments 1.36
@@ -12,7 +28,7 @@
 
 ## 0.1.1
 
-- Avoid spawning a conda process for every Python environment resolution request
+- Avoid spawning a `conda` process for every Python environment resolution request
 
 ## 0.1.0
 
@@ -24,7 +40,7 @@
 - Exclude the active conda-global tool root and Pixi-owned prefixes
 - Refuse changes when multiple workspace manifests report the same prefix
 - Retain unaffected environments when one workspace environment cannot be inspected
-- Add bounded, shell-free conda command execution with option-delimited specs
+- Add bounded, shell-free `conda` command execution with option-delimited specs
 - List conda-pypi records while omitting raw pip records
 - Create regular named environments from project-root `environment.yml`,
   `environment.yaml`, CEP 23 explicit specifications, and conda-lockfiles inputs

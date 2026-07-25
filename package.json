@@ -2,7 +2,7 @@
   "name": "conda-code",
   "displayName": "Conda Code",
   "description": "Conda environments, workspaces, packages, and tasks for Visual Studio Code.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "publisher": "jezdez",
   "icon": "assets/conda-logo.png",
@@ -45,7 +45,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
-      "description": "Conda Code executes the configured Conda executable."
+      "description": "Conda Code executes local conda commands."
     },
     "virtualWorkspaces": {
       "supported": false,
@@ -86,7 +86,7 @@
         "conda-code.condaExecutable": {
           "type": "string",
           "default": "",
-          "description": "Path to the Conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
+          "description": "Path to the primary conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
           "scope": "machine-overridable"
         }
       }
