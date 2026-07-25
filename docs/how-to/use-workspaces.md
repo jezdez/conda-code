@@ -32,7 +32,7 @@ add task arguments. Put fixed options in the task definition or use
 `conda task` directly when arguments are required.
 
 See the
-[conda-workspaces task documentation](https://conda-incubator.github.io/conda-workspaces/features/tasks/)
+[conda-workspaces task documentation](https://conda-incubator.github.io/conda-workspaces/features/#tasks)
 for task definition syntax.
 
 ## Install a declared environment

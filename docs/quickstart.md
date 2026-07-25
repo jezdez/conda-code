@@ -1,20 +1,17 @@
 # Quickstart
 
-This guide installs Conda Code, selects its provider, and checks both sources of
-environments.
+This guide installs Conda Code, selects its provider, and verifies regular
+environment discovery. The final step adds optional conda workspace support.
 
 ## 1. Prepare conda
 
-Conda Code requires conda 26.3 or newer. Install conda-workspaces in the same
-base environment to enable workspace support. Update conda through the channels
-configured for your distribution, then follow the
-[conda-workspaces installation instructions](https://conda-incubator.github.io/conda-workspaces/quickstart/#installation).
+Conda Code requires conda 26.3 or newer. Update conda through the channels
+configured for your distribution.
 
-Confirm that the commands Conda Code uses are available:
+Confirm that the primary conda executable is available:
 
 ```console
 conda info --json
-conda workspace --help
 ```
 
 ## 2. Install Conda Code
@@ -51,21 +48,32 @@ branches can appear. The provider ID in the settings above selects Conda Code
 for creation and package operations.
 :::
 
-## 4. Check a regular environment
+## 4. Check regular environments
 
-Create a named environment outside VS Code:
+The **Conda Code** manager shows the base environment and the named and prefix
+environments found across local conda installations. Select an existing
+environment to use it for the current project.
+
+To create a named environment, run **Python Envs: Create Environment**, choose
+**Conda Code**, and select **Named environment**. Conda Code refreshes the list
+after creation.
+
+Run **Conda Code: Refresh Environments** from the Command Palette after an
+external change that is not picked up automatically.
+
+## 5. Optional: Check a conda workspace
+
+Install conda-workspaces in the same base environment as the primary conda.
+Follow the
+[conda-workspaces installation instructions](https://conda-incubator.github.io/conda-workspaces/quickstart/#installation),
+then confirm the command is available:
 
 ```console
-conda create -n conda-code-demo python
+conda workspace --help
 ```
 
-Run **Conda Code: Refresh Environments** from the Command Palette. The
-`conda-code-demo` environment appears below **Conda Code** and can be selected
-for a Python project.
-
-## 5. Check a workspace
-
-Open a folder that is registered as a Python project, then create a workspace:
+Open a folder that is registered as a Python project, then create a conda
+workspace:
 
 ```console
 cd /path/to/project
@@ -75,6 +83,9 @@ conda workspace quickstart --yes --no-shell --format conda -- python
 Run **Conda Code: Refresh Environments** again. The installed workspace
 environment appears in the same provider, grouped by workspace name.
 
-Next, follow the tutorial for a
-[](tutorials/regular-environment.md) or a
+:::{card} Continue with a complete workflow
+
+Follow the tutorial for a [](tutorials/regular-environment.md), create from
+[](tutorials/environment-file.md), or build a
 [](tutorials/workspace-environment.md).
+:::

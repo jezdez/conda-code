@@ -1,88 +1,125 @@
-# Conda Code
+<p align="center">
+  <img
+    src="https://raw.githubusercontent.com/jezdez/conda-code/main/assets/conda-logo.png"
+    alt="Conda Code logo"
+    width="128"
+  >
+</p>
 
-[![Docs](https://github.com/jezdez/conda-code/actions/workflows/docs.yml/badge.svg)](https://github.com/jezdez/conda-code/actions/workflows/docs.yml)
+<h1 align="center">Conda Code</h1>
 
-Conda Code adds conda environment and package management to the
+<p align="center">
+  <strong>Conda environments, workspaces, packages, and tasks for Visual Studio Code.</strong>
+</p>
+
+<p align="center">
+  <a href="https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code">
+    <img
+      src="https://img.shields.io/visual-studio-marketplace/v/jezdez.conda-code?label=Marketplace&amp;color=44A833"
+      alt="Visual Studio Marketplace version"
+    >
+  </a>
+  <a href="https://jezdez.github.io/conda-code/">
+    <img
+      src="https://github.com/jezdez/conda-code/actions/workflows/docs.yml/badge.svg"
+      alt="Documentation build"
+    >
+  </a>
+</p>
+
+Conda Code adds its own conda environment and package manager to the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
-It provides its own conda provider for regular environments and integrates
-[conda-workspaces](https://github.com/conda-incubator/conda-workspaces) for
-project environments and tasks. It does not call the Python Environments
-extension's built-in conda provider.
+It discovers regular environments across local conda installations and
+integrates [conda-workspaces](https://github.com/conda-incubator/conda-workspaces)
+project environments and tasks in the same provider.
 
-The environment and package manager ID is `jezdez.conda-code:conda`.
+## Get started
 
-## Install
+1. Install
+   [Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
+   or run:
 
-Install
-[Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
-or run:
+   ```console
+   code --install-extension jezdez.conda-code
+   ```
 
-```console
-code --install-extension jezdez.conda-code
-```
+   Python Environments is installed as an extension dependency.
 
-Python Environments is installed as an extension dependency.
+2. Make Conda Code the default conda manager in your user or workspace
+   settings:
 
-## Features
+   ```json
+   {
+     "python-envs.defaultEnvManager": "jezdez.conda-code:conda",
+     "python-envs.defaultPackageManager": "jezdez.conda-code:conda"
+   }
+   ```
 
-- Discovers regular conda environments without running their Python
-  interpreters
-- Classifies base, named, and prefix environments
-- Routes activation, package changes, and safe deletion through the conda
-  installation that owns each prefix
-- Keeps environments without Python visible
-- Creates named environments from package specifications, `environment.yml`,
-  [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit files, and
-  [conda-lockfiles](https://github.com/conda/conda-lockfiles)
-- Lists conda package records, including
-  [conda-pypi](https://github.com/conda/conda-pypi) packages
-- Discovers, installs, and manages conda-workspaces environments
-- Publishes conda workspace tasks through the native VS Code task interface
-- Ignores [conda-global](https://github.com/conda-incubator/conda-global) tool
-  prefixes and Pixi-owned `.pixi/envs` prefixes
-- Coexists with
+3. Open the Python Environments view and choose **Conda Code**.
+
+> **Note:** Python Environments currently registers its built-in conda provider
+> unconditionally and does not deduplicate environments across providers. Both
+> conda branches can appear. The settings above select Conda Code for creation
+> and package operations.
+
+Follow the [quickstart](https://jezdez.github.io/conda-code/quickstart/) to
+check regular environment and workspace discovery.
+
+## What Conda Code handles
+
+- **Regular environments:** Find base, named, and prefix environments without
+  starting their Python interpreters, including environments without Python.
+- **Creation inputs:** Create named environments from package specifications,
+  `environment.yml`, [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit
+  files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
+- **conda workspaces:** Discover, install, and manage conda-workspaces
+  environments, then run declared tasks through the native VS Code task
+  interface.
+- **Owner-aware operations:** Route activation, package changes, and safe
+  deletion through the conda installation that owns each prefix.
+- **Ecosystem compatibility:** Include
+  [conda-pypi](https://github.com/conda/conda-pypi) package records, ignore
+  [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes,
+  and leave Pixi projects to
   [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
+  when it is installed.
 
-Python Environments currently registers its built-in conda provider
-unconditionally and does not deduplicate environments across providers. Select
-`jezdez.conda-code:conda` in your Python Environments settings to use Conda Code
-for project operations.
+Run **Conda Code: Refresh Environments** after an external change that is not
+picked up automatically.
 
 ## Requirements
 
-- Visual Studio Code 1.118 or newer
-- Python Environments
-- conda 26.3 or newer
-- A trusted VS Code window
-- conda-workspaces 0.7 or newer for workspace features
-- conda-lockfiles 0.2 or newer for conda lockfile creation inputs
+Required:
 
-Workspace discovery and project creation require a local project registered
-with Python Environments. Workspace PyPI dependencies require conda 26.5 or
-newer.
+- Visual Studio Code 1.118 or newer
+- conda 26.3 or newer
+- A trusted VS Code window for project operations
+- A local project registered with Python Environments for project-scoped
+  creation and workspace discovery
+
+Optional integrations:
+
+- conda-workspaces 0.7 or newer for workspace environments and tasks
+- conda-lockfiles 0.2 or newer for conda lockfile creation inputs
+- conda 26.5 or newer for workspace PyPI dependencies
 
 Set `conda-code.condaExecutable` when the primary conda is not available through
 `CONDA_EXE`, the Python extension's `python.condaPath` setting, or `PATH`.
 
-## Usage
+See the
+[complete requirements](https://jezdez.github.io/conda-code/reference/requirements/)
+for installation details.
 
-Open the Python Environments view and select the Conda Code provider. Opening a
-registered project with a supported workspace manifest adds its installed
-workspace environments. Tasks declared by that manifest appear under
-**Tasks: Run Task** with the `conda-workspaces` source.
+## Learn more
 
-Conda Code watches conda-reported configuration files and workspace manifests.
-Run **Conda Code: Refresh Environments** to force a refresh after an external
-change.
+- [Create environments from project files](https://jezdez.github.io/conda-code/how-to/create-from-files/)
+- [Use conda workspaces](https://jezdez.github.io/conda-code/how-to/use-workspaces/)
+- [Understand the provider model](https://jezdez.github.io/conda-code/explanation/provider-model/)
+- [Troubleshoot Conda Code](https://jezdez.github.io/conda-code/how-to/troubleshooting/)
+- [Read the changelog](https://jezdez.github.io/conda-code/changelog/)
 
-## Documentation
-
-The [Conda Code documentation](https://jezdez.github.io/conda-code/) includes:
-
-- [Tutorials](https://jezdez.github.io/conda-code/tutorials/)
-- [How-to guides](https://jezdez.github.io/conda-code/how-to/)
-- [Reference](https://jezdez.github.io/conda-code/reference/)
-- [Explanations](https://jezdez.github.io/conda-code/explanation/)
+Report problems and request features in the
+[issue tracker](https://github.com/jezdez/conda-code/issues).
 
 ## Development
 

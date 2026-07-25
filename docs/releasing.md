@@ -12,8 +12,9 @@ immutable GitHub Release through a tag-gated GitHub Actions workflow.
 4. Create and push a tag that exactly matches `package.json`:
 
    ```console
-   git tag -s 0.1.0 -m "Conda Code 0.1.0"
-   git push origin 0.1.0
+   RELEASE_VERSION=0.4.0
+   git tag -s "${RELEASE_VERSION}" -m "Conda Code ${RELEASE_VERSION}"
+   git push origin "${RELEASE_VERSION}"
    ```
 
 The release workflow then:

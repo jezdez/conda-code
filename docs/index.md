@@ -2,53 +2,102 @@
 
 Conda environments, packages, workspaces, and tasks in Visual Studio Code.
 
+:::{image} ../assets/conda-logo.png
+:alt: Conda Code logo
+:width: 128px
+:align: center
+:::
+
 Conda Code registers its own provider with the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
-It presents regular conda environments and project-aware
+It brings regular conda environments and project-aware
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/)
-environments through one manager. It also publishes declared workspace tasks
-through the native VS Code task interface.
+environments into one manager, with package operations and declared workspace
+tasks alongside them.
 
 The provider ID is `jezdez.conda-code:conda`. Conda Code runs the configured
 `conda` executable directly and does not delegate to Python Environments'
 built-in conda manager.
 
-::::{grid} 1 1 2 2
-:gutter: 3
+::::{grid} 1 2 2 2
+:gutter: 2
+:margin: 4 0 4 0
 
-:::{grid-item-card} {octicon}`stack` Regular conda environments
+:::{grid-item}
 
-Discover the base environment, named environments, and prefix environments.
-Create named environments directly or from project-root environment files,
-select environments, remove them, and manage packages.
+```{button-link} https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code
+:color: primary
+:expand:
+
+Install from Visual Studio Marketplace
+```
+
 :::
 
-:::{grid-item-card} {octicon}`project` Conda workspaces
+:::{grid-item}
 
-Find installed environments declared by `conda.toml`, compatible `pixi.toml`
-files, and compatible `pyproject.toml` tables. Route changes through
-`conda workspace` and run declared tasks through native VS Code tasks.
-:::
+```{button-ref} quickstart
+:ref-type: doc
+:color: primary
+:outline:
+:expand:
 
-:::{grid-item-card} {octicon}`package` Conda package management
+Open the quickstart
+```
 
-List conda package records, install and remove packages in regular
-environments, and add dependencies to supported workspace environments.
-:::
-
-:::{grid-item-card} {octicon}`plug` Related conda tools
-
-Include conda-pypi records, accept conda-lockfiles inputs, skip conda-global
-tool environments, and coexist with Pixi Code.
 :::
 
 ::::
 
+## One provider for conda
+
+::::{grid} 1 1 2 2
+:gutter: 3
+
+:::{grid-item-card} {octicon}`stack` Regular conda environments
+:link: reference/environment-operations
+:link-type: doc
+
+Discover the base environment, named environments, and prefix environments.
+Keep environments without Python visible and avoid starting an interpreter
+during discovery.
+:::
+
+:::{grid-item-card} {octicon}`file-code` Project creation
+:link: how-to/create-from-files
+:link-type: doc
+
+Create named environments from package specifications, `environment.yml`,
+CEP 23 explicit files, and supported conda lockfiles.
+:::
+
+:::{grid-item-card} {octicon}`project` conda workspaces
+:link: how-to/use-workspaces
+:link-type: doc
+
+Find installed manifest environments, route changes through `conda workspace`,
+and run declared tasks through native VS Code tasks.
+:::
+
+:::{grid-item-card} {octicon}`package` Package management
+:link: reference/package-operations
+:link-type: doc
+
+List conda package records, change regular environments through their owning
+conda installation, and add dependencies to supported workspace environments.
+:::
+
+::::
+
+:::{tip}
+Conda Code includes conda-pypi records, accepts conda-lockfiles inputs, skips
+conda-global tool environments, and leaves Pixi projects to Pixi Code when it
+is installed. See [](explanation/ecosystem.md) for how the tools fit together.
+:::
+
 ## Install
 
-Install
-[Conda Code from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code)
-or run:
+The Marketplace install above is the shortest path. You can also run:
 
 ```console
 code --install-extension jezdez.conda-code
@@ -60,7 +109,7 @@ Code from source, see {ref}`source-build`.
 Open the Python Environments view and select **Conda Code**. See the
 [](quickstart.md) for the complete setup.
 
-## Choose a path
+## Learn your way
 
 ::::{grid} 1 1 2 2
 :gutter: 3
@@ -105,11 +154,11 @@ How regular environments, workspaces, provider registration, and related conda
 plugins fit together.
 :::
 
-:::{grid-item-card} {octicon}`mark-github` Project
+:::{grid-item-card} {octicon}`log` Changelog
 :link: changelog
 :link-type: doc
 
-Read the changelog, release process, license, and source repository.
+See what changed in each Conda Code release.
 :::
 
 ::::
@@ -123,47 +172,12 @@ quickstart
 
 ```{toctree}
 :hidden:
-:caption: Tutorials
+:caption: Documentation
 
-Create a named conda environment <tutorials/regular-environment>
-Create from environment.yml <tutorials/environment-file>
-Create a workspace environment <tutorials/workspace-environment>
-```
-
-```{toctree}
-:hidden:
-:caption: How-to guides
-
-Select the Conda Code provider <how-to/select-provider>
-Configure the `conda` executable <how-to/configure-conda>
-Create from project files <how-to/create-from-files>
-Manage environments and packages <how-to/manage-environments>
-Use conda workspaces <how-to/use-workspaces>
-Coexist with Pixi Code <how-to/coexist-with-pixi-code>
-Troubleshoot Conda Code <how-to/troubleshooting>
-```
-
-```{toctree}
-:hidden:
-:caption: Reference
-
-Requirements <reference/requirements>
-Settings and commands <reference/settings-and-commands>
-Project creation <reference/project-creation>
-Environment operations <reference/environment-operations>
-Package operations <reference/package-operations>
-Workspace discovery <reference/workspace-discovery>
-Workspace tasks <reference/workspace-tasks>
-```
-
-```{toctree}
-:hidden:
-:caption: Explanation
-
-Regular environments and workspaces <explanation/environment-model>
-Project files, lockfiles, and workspaces <explanation/creation-inputs>
-The provider model <explanation/provider-model>
-Ecosystem fit <explanation/ecosystem>
+Tutorials <tutorials/index>
+How-to guides <how-to/index>
+Reference <reference/index>
+Explanation <explanation/index>
 ```
 
 ```{toctree}

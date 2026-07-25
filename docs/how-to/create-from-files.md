@@ -24,7 +24,7 @@ It derives an available name from the project directory.
 Conda Code runs this command from the project root:
 
 ```console
-conda create --name NAME --file environment.yml
+conda create --yes --json --name NAME --file environment.yml
 ```
 
 The command-line name overrides `name` or `prefix` in the
