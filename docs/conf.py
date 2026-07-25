@@ -25,7 +25,6 @@ myst_enable_extensions = [
     "colon_fence",
     "deflist",
     "fieldlist",
-    "tasklist",
 ]
 
 html_theme = "conda_sphinx_theme"

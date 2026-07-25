@@ -1,7 +1,1 @@
-.vscode-test/
-coverage/
-dist/
-docs/_build/
-node_modules/
 pixi.lock
-*.vsix

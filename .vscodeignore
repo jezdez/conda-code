@@ -10,7 +10,6 @@ coverage/**
 docs/**
 eslint.config.mjs
 dist/**/*.test.js
-dist/**/*.test.js.map
 dist/**/*.js.map
 package-lock.json
 pixi.lock
