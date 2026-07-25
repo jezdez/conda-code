@@ -26,8 +26,6 @@ export type {
   WorkspaceTask,
   WorkspaceTaskList,
 } from './parsers';
-export { CondaCommandError } from './conda';
-
 export type CondaOperationOptions = CondaClientOperationOptions;
 
 export type WorkspaceManifestFormat = 'conda' | 'pixi' | 'pyproject';
@@ -78,7 +76,7 @@ export class CondaWorkspacesClient extends CondaClient {
     manifest: string,
     options: CondaOperationOptions = {},
   ): Promise<WorkspaceTaskList> {
-    const result = await this.runTask(manifest, ['list', '--json'], options);
+    const result = await this.runManifestCommand('task', manifest, ['list', '--json'], options);
     return parseWorkspaceTasks(result.stdout);
   }
 
@@ -86,7 +84,12 @@ export class CondaWorkspacesClient extends CondaClient {
     manifest: string,
     options: CondaOperationOptions = {},
   ): Promise<WorkspaceInfo> {
-    const result = await this.runWorkspace(manifest, ['info', '--json'], options);
+    const result = await this.runManifestCommand(
+      'workspace',
+      manifest,
+      ['info', '--json'],
+      options,
+    );
     return parseWorkspaceInfo(result.stdout);
   }
 
@@ -94,7 +97,12 @@ export class CondaWorkspacesClient extends CondaClient {
     manifest: string,
     options: CondaOperationOptions = {},
   ): Promise<readonly WorkspaceEnvironment[]> {
-    const result = await this.runWorkspace(manifest, ['envs', '--json'], options);
+    const result = await this.runManifestCommand(
+      'workspace',
+      manifest,
+      ['envs', '--json'],
+      options,
+    );
     return parseWorkspaceEnvironments(result.stdout);
   }
 
@@ -103,7 +111,8 @@ export class CondaWorkspacesClient extends CondaClient {
     environment: string,
     options: CondaOperationOptions = {},
   ): Promise<WorkspaceEnvironmentInfo> {
-    const result = await this.runWorkspace(
+    const result = await this.runManifestCommand(
+      'workspace',
       manifest,
       ['info', '-e', requireValue(environment, 'environment'), '--json'],
       options,
@@ -116,7 +125,8 @@ export class CondaWorkspacesClient extends CondaClient {
     environment: string,
     options: CondaOperationOptions = {},
   ): Promise<readonly WorkspacePackage[]> {
-    const result = await this.runWorkspace(
+    const result = await this.runManifestCommand(
+      'workspace',
       manifest,
       ['list', '-e', requireValue(environment, 'environment'), '--json'],
       options,
@@ -193,7 +203,7 @@ export class CondaWorkspacesClient extends CondaClient {
     if (environment !== undefined) {
       args.push('-e', requireValue(environment, 'environment'));
     }
-    return this.runWorkspace(manifest, args, options);
+    return this.runManifestCommand('workspace', manifest, args, options);
   }
 
   public cleanEnvironment(
@@ -205,7 +215,7 @@ export class CondaWorkspacesClient extends CondaClient {
     if (environment !== undefined) {
       args.push('-e', requireValue(environment, 'environment'));
     }
-    return this.runWorkspace(manifest, args, options);
+    return this.runManifestCommand('workspace', manifest, args, options);
   }
 
   public async quickstart(
@@ -244,30 +254,18 @@ export class CondaWorkspacesClient extends CondaClient {
       args.push('--no-install');
     }
     args.push('--', ...specs);
-    return this.runWorkspace(manifest, args, options);
+    return this.runManifestCommand('workspace', manifest, args, options);
   }
 
-  private runWorkspace(
+  private runManifestCommand(
+    group: 'workspace' | 'task',
     manifest: string,
     args: readonly string[],
     options: CondaOperationOptions,
   ): Promise<CommandResult> {
     const manifestPath = absoluteManifestPath(manifest);
     return this.runChecked(
-      ['workspace', '--file', manifestPath, ...args],
-      options,
-      dirname(manifestPath),
-    );
-  }
-
-  private runTask(
-    manifest: string,
-    args: readonly string[],
-    options: CondaOperationOptions,
-  ): Promise<CommandResult> {
-    const manifestPath = absoluteManifestPath(manifest);
-    return this.runChecked(
-      ['task', '--file', manifestPath, ...args],
+      [group, '--file', manifestPath, ...args],
       options,
       dirname(manifestPath),
     );

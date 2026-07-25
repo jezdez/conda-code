@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  CondaJsonParseError,
   parseCondaInfo,
   parseCondaMutationPrefix,
   parseCondaPackages,
@@ -26,6 +25,10 @@ test('parseCondaInfo normalizes the conda JSON fields', () => {
       active_prefix: null,
       active_prefix_name: null,
       envs: ['/opt/conda', '/work/.conda/envs/default'],
+      config_files: ['/opt/conda/.condarc', '/home/me/.condarc'],
+      rc_path: '/home/me/.condarc',
+      user_rc_path: '/home/me/.condarc',
+      sys_rc_path: '/opt/conda/.condarc',
       envs_details: {
         '/opt/conda': { name: 'base', ignored: true },
         '/work/.conda/envs/default': { name: '' },
@@ -41,11 +44,57 @@ test('parseCondaInfo normalizes the conda JSON fields', () => {
     defaultPrefix: '/opt/conda',
     activePrefix: null,
     envs: ['/opt/conda', '/work/.conda/envs/default'],
+    configFiles: ['/opt/conda/.condarc', '/home/me/.condarc'],
+    rcPath: '/home/me/.condarc',
+    userRcPath: '/home/me/.condarc',
+    sysRcPath: '/opt/conda/.condarc',
     envsDetails: {
       '/opt/conda': { name: 'base' },
       '/work/.conda/envs/default': { name: '' },
     },
   });
+});
+
+test('parseCondaInfo accepts missing configuration paths', () => {
+  const info = parseCondaInfo(
+    JSON.stringify({
+      platform: 'linux-64',
+      root_prefix: '/opt/conda',
+      envs_dirs: ['/opt/conda/envs'],
+      default_prefix: '/opt/conda',
+      active_prefix: null,
+      envs: ['/opt/conda'],
+    }),
+  );
+
+  assert.equal(info.configFiles, undefined);
+  assert.equal(info.rcPath, undefined);
+  assert.equal(info.userRcPath, undefined);
+  assert.equal(info.sysRcPath, undefined);
+});
+
+test('parseCondaInfo rejects malformed configuration paths', () => {
+  const requiredFields = {
+    platform: 'linux-64',
+    root_prefix: '/opt/conda',
+    envs_dirs: ['/opt/conda/envs'],
+    default_prefix: '/opt/conda',
+    active_prefix: null,
+    envs: ['/opt/conda'],
+  };
+  const malformed = [
+    ['config_files', ['/opt/conda/.condarc', 42], 'conda info.config_files[1]'],
+    ['rc_path', null, 'conda info.rc_path'],
+    ['user_rc_path', false, 'conda info.user_rc_path'],
+    ['sys_rc_path', [], 'conda info.sys_rc_path'],
+  ] as const;
+
+  for (const [field, value, expectedPath] of malformed) {
+    assert.throws(
+      () => parseCondaInfo(JSON.stringify({ ...requiredFields, [field]: value })),
+      (error: unknown) => error instanceof Error && error.message.includes(expectedPath),
+    );
+  }
 });
 
 test('parseCondaPackages keeps package build and channel details', () => {
@@ -213,8 +262,7 @@ test('parsers reject malformed fields with a useful path', () => {
         JSON.stringify([{ name: 'default', features: [], installed: 'yes' }]),
       ),
     (error: unknown) =>
-      error instanceof CondaJsonParseError &&
-      error.message.includes('conda workspace envs[0].installed'),
+      error instanceof Error && error.message.includes('conda workspace envs[0].installed'),
   );
   assert.throws(
     () =>
@@ -225,7 +273,6 @@ test('parsers reject malformed fields with a useful path', () => {
         }),
       ),
     (error: unknown) =>
-      error instanceof CondaJsonParseError &&
-      error.message.includes('conda task list.tasks.docs.name'),
+      error instanceof Error && error.message.includes('conda task list.tasks.docs.name'),
   );
 });

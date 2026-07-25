@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  CommandCancelledError,
-  CommandOutputLimitError,
-  CommandSpawnError,
-  CommandTerminatedError,
-  SpawnCommandRunner,
-} from './runner';
+import { SpawnCommandRunner } from './runner';
 
 test('SpawnCommandRunner captures stdout, stderr, and the exit code', async () => {
   const runner = new SpawnCommandRunner();
@@ -45,7 +39,7 @@ test('SpawnCommandRunner rejects and stops output beyond the byte limit', async 
     runner.run(process.execPath, ['-e', "process.stdout.write('0123456789')"], {
       maxOutputBytes: 5,
     }),
-    CommandOutputLimitError,
+    /exceeded the stdout limit of 5 bytes/,
   );
 });
 
@@ -56,8 +50,7 @@ test('SpawnCommandRunner identifies the stream that exceeds the byte limit', asy
     runner.run(process.execPath, ['-e', "process.stderr.write('0123456789')"], {
       maxOutputBytes: 5,
     }),
-    (error: unknown) =>
-      error instanceof CommandOutputLimitError && error.message.includes('stderr'),
+    /exceeded the stderr limit of 5 bytes/,
   );
 });
 
@@ -69,7 +62,7 @@ test('SpawnCommandRunner cancels an active child process', async () => {
   });
   controller.abort();
 
-  await assert.rejects(running, CommandCancelledError);
+  await assert.rejects(running, /Command was cancelled/);
 });
 
 test('SpawnCommandRunner does not spawn when already cancelled', async () => {
@@ -81,7 +74,7 @@ test('SpawnCommandRunner does not spawn when already cancelled', async () => {
     runner.run(process.execPath, ['--version'], {
       signal: controller.signal,
     }),
-    CommandCancelledError,
+    /Command was cancelled/,
   );
 });
 
@@ -90,7 +83,7 @@ test('SpawnCommandRunner distinguishes a command that cannot start', async () =>
 
   await assert.rejects(
     runner.run(`conda-code-missing-command-${process.pid}`, []),
-    CommandSpawnError,
+    /Unable to start command/,
   );
 });
 
@@ -102,7 +95,7 @@ test(
 
     await assert.rejects(
       runner.run(process.execPath, ['-e', "process.kill(process.pid, 'SIGTERM')"]),
-      CommandTerminatedError,
+      /terminated by SIGTERM/,
     );
   },
 );

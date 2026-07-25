@@ -7,6 +7,7 @@ import {
   parseCondaMutationPrefix,
   parseCondaPackages,
 } from './parsers';
+import { isRunnableCondaExecutable } from './executable';
 import {
   type CommandResult,
   type CommandRunner,
@@ -33,25 +34,6 @@ export interface CondaInstallOptions extends CondaClientOperationOptions {
 
 export interface CondaEnvironmentFileCreateOptions extends CondaClientOperationOptions {
   readonly noDefaultPackages?: boolean;
-}
-
-export class CondaCommandError extends Error {
-  public readonly executable: string;
-  public readonly args: readonly string[];
-  public readonly result: CommandResult;
-
-  public constructor(executable: string, args: readonly string[], result: CommandResult) {
-    const detail =
-      structuredError(result.stdout) ??
-      firstLine(result.stderr) ??
-      firstLine(result.stdout) ??
-      `exit code ${result.exitCode}`;
-    super(`${executable} failed with ${detail}`);
-    this.name = 'CondaCommandError';
-    this.executable = executable;
-    this.args = args;
-    this.result = result;
-  }
 }
 
 function structuredError(text: string): string | undefined {
@@ -96,16 +78,35 @@ function requireValues(values: readonly string[], label: string): string[] {
 
 export class CondaClient {
   private readonly runner: CommandRunner;
-  private readonly condaExecutable: string;
+  private readonly configuredExecutable: string;
   private readonly maxOutputBytes: number;
 
   public constructor(options: CondaClientOptions = {}) {
     this.runner = options.runner ?? new SpawnCommandRunner();
-    this.condaExecutable = requireValue(options.condaExecutable ?? 'conda', 'condaExecutable');
+    this.configuredExecutable = requireValue(options.condaExecutable ?? 'conda', 'condaExecutable');
+    if (!isRunnableCondaExecutable(this.configuredExecutable)) {
+      throw new TypeError('condaExecutable must invoke conda directly');
+    }
     this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     if (!Number.isSafeInteger(this.maxOutputBytes) || this.maxOutputBytes <= 0) {
       throw new RangeError('maxOutputBytes must be a positive safe integer');
     }
+  }
+
+  public get executable(): string {
+    return this.configuredExecutable;
+  }
+
+  public forExecutable(condaExecutable: string): CondaClient {
+    const executable = requireValue(condaExecutable, 'condaExecutable');
+    if (executable === this.configuredExecutable) {
+      return this;
+    }
+    return new CondaClient({
+      runner: this.runner,
+      condaExecutable: executable,
+      maxOutputBytes: this.maxOutputBytes,
+    });
   }
 
   public async getInfo(options: CondaClientOperationOptions = {}): Promise<CondaInfo> {
@@ -129,19 +130,7 @@ export class CondaClient {
     specs: readonly string[],
     options: CondaClientOperationOptions = {},
   ): Promise<string> {
-    const result = await this.runChecked(
-      [
-        'create',
-        '--yes',
-        '--json',
-        '--name',
-        requireValue(name, 'name'),
-        '--',
-        ...requireValues(specs, 'specs'),
-      ],
-      options,
-    );
-    return parseCondaMutationPrefix(result.stdout);
+    return this.createEnvironment('--name', requireValue(name, 'name'), specs, options);
   }
 
   public async createPrefixEnvironment(
@@ -149,16 +138,17 @@ export class CondaClient {
     specs: readonly string[],
     options: CondaClientOperationOptions = {},
   ): Promise<string> {
+    return this.createEnvironment('--prefix', requireValue(prefix, 'prefix'), specs, options);
+  }
+
+  private async createEnvironment(
+    target: '--name' | '--prefix',
+    value: string,
+    specs: readonly string[],
+    options: CondaClientOperationOptions,
+  ): Promise<string> {
     const result = await this.runChecked(
-      [
-        'create',
-        '--yes',
-        '--json',
-        '--prefix',
-        requireValue(prefix, 'prefix'),
-        '--',
-        ...requireValues(specs, 'specs'),
-      ],
+      ['create', '--yes', '--json', target, value, '--', ...requireValues(specs, 'specs')],
       options,
     );
     return parseCondaMutationPrefix(result.stdout);
@@ -168,7 +158,7 @@ export class CondaClient {
     file: string,
     name: string,
     options: CondaEnvironmentFileCreateOptions = {},
-  ): Promise<void> {
+  ): Promise<string> {
     const environmentFile = resolve(requireValue(file, 'file'));
     const args = [
       'create',
@@ -180,7 +170,8 @@ export class CondaClient {
       '--file',
       environmentFile,
     ];
-    await this.runChecked(args, options, dirname(environmentFile));
+    const result = await this.runChecked(args, options, dirname(environmentFile));
+    return parseCondaMutationPrefix(result.stdout);
   }
 
   public async removeEnvironment(
@@ -198,8 +189,14 @@ export class CondaClient {
     specs: readonly string[],
     options: CondaInstallOptions = {},
   ): Promise<void> {
-    const args = ['install', '--yes', '--json', '--prefix', requireValue(prefix, 'prefix')];
-    args.push(options.upgrade === true ? '--update-specs' : '--satisfied-skip-solve');
+    const args = [
+      'install',
+      '--yes',
+      '--json',
+      '--prefix',
+      requireValue(prefix, 'prefix'),
+      options.upgrade === true ? '--update-specs' : '--satisfied-skip-solve',
+    ];
     args.push('--', ...requireValues(specs, 'specs'));
     await this.runChecked(args, options);
   }
@@ -233,9 +230,14 @@ export class CondaClient {
       maxOutputBytes: this.maxOutputBytes,
       ...(cwd === undefined ? {} : { cwd }),
     };
-    const result = await this.runner.run(this.condaExecutable, args, runOptions);
+    const result = await this.runner.run(this.configuredExecutable, args, runOptions);
     if (result.exitCode !== 0) {
-      throw new CondaCommandError(this.condaExecutable, args, result);
+      const detail =
+        structuredError(result.stdout) ??
+        firstLine(result.stderr) ??
+        firstLine(result.stdout) ??
+        `exit code ${result.exitCode}`;
+      throw new Error(`${this.configuredExecutable} failed with ${detail}`);
     }
     return result;
   }

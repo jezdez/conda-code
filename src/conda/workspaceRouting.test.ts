@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -7,7 +9,6 @@ import type { Memento, Uri } from 'vscode';
 
 import { CondaSelectionState } from './selectionState';
 import {
-  CompositeWorkspaceEnvironmentError,
   CondaWorkspaceRoute,
   CondaWorkspaceRouteRegistry,
   dependencyFeature,
@@ -114,6 +115,43 @@ test('route registry leaves multiply claimed prefixes unowned', () => {
   assert.equal(registry.isConflictedPrefix(sharedPrefix), false);
 });
 
+test('route registry treats symlink aliases as the same prefix identity', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-route-alias-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prefix = path.join(root, 'prefix');
+  const alias = path.join(root, 'alias');
+  const pythonPath = path.join(prefix, 'bin', 'python');
+  await mkdir(path.dirname(pythonPath), { recursive: true });
+  await writeFile(pythonPath, '');
+  await symlink(prefix, alias, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const first: CondaWorkspaceRoute = {
+    projectUri: uri(path.join(root, 'first')),
+    manifestUri: uri(path.join(root, 'first', 'conda.toml')),
+    environmentName: 'default',
+    features: [],
+    directCondaDependencies: ['python'],
+    prefix,
+    pythonPath,
+  };
+  const second: CondaWorkspaceRoute = {
+    ...first,
+    projectUri: uri(path.join(root, 'second')),
+    manifestUri: uri(path.join(root, 'second', 'conda.toml')),
+    prefix: alias,
+    pythonPath: path.join(alias, 'bin', 'python'),
+  };
+  const registry = new CondaWorkspaceRouteRegistry();
+
+  registry.replaceAll([first, second]);
+  assert.equal(registry.isConflictedPrefix(alias), true);
+  assert.equal(registry.getRoute({ environmentPath: uri(prefix) } as PythonEnvironment), undefined);
+
+  registry.replaceAll([first]);
+  assert.equal(registry.getRoute({ environmentPath: uri(alias) } as PythonEnvironment), first);
+  assert.equal(registry.getRouteByContext(uri(path.join(alias, 'bin', 'python'))), first);
+});
+
 test('failed workspace discovery preserves its previous prefix claim', () => {
   const manifest = '/work/demo/conda.toml';
   const route: CondaWorkspaceRoute = {
@@ -176,6 +214,6 @@ test('dependency feature routing is deterministic and rejects composites', () =>
   assert.equal(dependencyFeature('test', ['test']), 'test');
   assert.throws(
     () => dependencyFeature('test-py312', ['test', 'py312']),
-    CompositeWorkspaceEnvironmentError,
+    /Package changes require a single feature\. test-py312 uses: test, py312/,
   );
 });

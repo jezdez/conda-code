@@ -6,6 +6,10 @@ export interface CondaInfo {
   readonly activePrefix: string | null;
   readonly envs: readonly string[];
   readonly envsDetails: Readonly<Record<string, CondaEnvironmentDetails>>;
+  readonly configFiles?: readonly string[];
+  readonly rcPath?: string;
+  readonly userRcPath?: string;
+  readonly sysRcPath?: string;
 }
 
 export interface CondaEnvironmentDetails {
@@ -61,18 +65,11 @@ export interface WorkspaceTaskList {
 
 type JsonRecord = Record<string, unknown>;
 
-export class CondaJsonParseError extends Error {
-  public constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = 'CondaJsonParseError';
-  }
-}
-
 function parseJson(text: string, label: string): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch (cause) {
-    throw new CondaJsonParseError(`${label} did not return valid JSON`, {
+    throw new Error(`${label} did not return valid JSON`, {
       cause,
     });
   }
@@ -80,28 +77,28 @@ function parseJson(text: string, label: string): unknown {
 
 function expectRecord(value: unknown, path: string): JsonRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new CondaJsonParseError(`${path} must be an object`);
+    throw new Error(`${path} must be an object`);
   }
   return value as JsonRecord;
 }
 
 function expectArray(value: unknown, path: string): readonly unknown[] {
   if (!Array.isArray(value)) {
-    throw new CondaJsonParseError(`${path} must be an array`);
+    throw new Error(`${path} must be an array`);
   }
   return value;
 }
 
 function expectString(value: unknown, path: string): string {
   if (typeof value !== 'string') {
-    throw new CondaJsonParseError(`${path} must be a string`);
+    throw new Error(`${path} must be a string`);
   }
   return value;
 }
 
 function expectBoolean(value: unknown, path: string): boolean {
   if (typeof value !== 'boolean') {
-    throw new CondaJsonParseError(`${path} must be a boolean`);
+    throw new Error(`${path} must be a boolean`);
   }
   return value;
 }
@@ -149,8 +146,24 @@ function optionalString(record: JsonRecord, key: string, path: string): string |
   return expectString(value, `${path}.${key}`);
 }
 
+function optionalStringArray(
+  record: JsonRecord,
+  key: string,
+  path: string,
+): readonly string[] | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  return expectStringArray(value, `${path}.${key}`);
+}
+
 export function parseCondaInfo(text: string): CondaInfo {
   const value = expectRecord(parseJson(text, 'conda info'), 'conda info');
+  const configFiles = optionalStringArray(value, 'config_files', 'conda info');
+  const rcPath = optionalString(value, 'rc_path', 'conda info');
+  const userRcPath = optionalString(value, 'user_rc_path', 'conda info');
+  const sysRcPath = optionalString(value, 'sys_rc_path', 'conda info');
   return {
     platform: expectString(value.platform, 'conda info.platform'),
     rootPrefix: expectString(value.root_prefix, 'conda info.root_prefix'),
@@ -159,6 +172,10 @@ export function parseCondaInfo(text: string): CondaInfo {
     activePrefix: expectNullableString(value.active_prefix, 'conda info.active_prefix'),
     envs: expectStringArray(value.envs, 'conda info.envs'),
     envsDetails: parseCondaEnvironmentDetails(value.envs_details),
+    ...(configFiles === undefined ? {} : { configFiles }),
+    ...(rcPath === undefined ? {} : { rcPath }),
+    ...(userRcPath === undefined ? {} : { userRcPath }),
+    ...(sysRcPath === undefined ? {} : { sysRcPath }),
   };
 }
 
@@ -254,7 +271,7 @@ export function parseWorkspaceTasks(text: string): WorkspaceTaskList {
       const task = expectRecord(item, taskPath);
       const name = expectString(task.name, `${taskPath}.name`);
       if (name !== key) {
-        throw new CondaJsonParseError(`${taskPath}.name must match its task key`);
+        throw new Error(`${taskPath}.name must match its task key`);
       }
       const description = optionalString(task, 'description', taskPath);
       const source = optionalString(task, 'source', taskPath);

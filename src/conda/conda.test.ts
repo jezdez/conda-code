@@ -4,7 +4,6 @@ import test from 'node:test';
 
 import { CondaClient } from './conda';
 import { type CommandResult, type CommandRunner, type RunCommandOptions } from './runner';
-import { CondaCommandError } from './workspaces';
 
 interface RecordedCall {
   readonly executable: string;
@@ -102,6 +101,29 @@ test('regular conda reads use the configured executable and JSON contracts', asy
   ]);
 });
 
+test('derived clients run through the owning conda executable', async () => {
+  const runner = new RecordingRunner(() => success([]));
+  const configured = new CondaClient({
+    runner,
+    condaExecutable: '/configured/conda',
+    maxOutputBytes: 2048,
+  });
+  const owner = configured.forExecutable('/owner/conda');
+
+  assert.equal(configured.executable, '/configured/conda');
+  assert.equal(owner.executable, '/owner/conda');
+  assert.equal(configured.forExecutable('/configured/conda'), configured);
+  await owner.listPrefixPackages('/owner/envs/demo');
+
+  assert.deepEqual(runner.calls, [
+    {
+      executable: '/owner/conda',
+      args: ['list', '--prefix', '/owner/envs/demo', '--json', '--no-pip'],
+      options: { signal: undefined, maxOutputBytes: 2048 },
+    },
+  ]);
+});
+
 test('regular conda reads exclude pip loaders and preserve conda-pypi records', async () => {
   const runner = new RecordingRunner(() =>
     success([
@@ -168,7 +190,10 @@ test('regular conda mutations keep every value in its own process argument', asy
 
 test('regular conda installs do not upgrade satisfied specs unless requested', async () => {
   const runner = new RecordingRunner(() => success());
-  const client = new CondaClient({ runner });
+  const client = new CondaClient({
+    runner,
+    condaExecutable: 'C:\\Miniforge3\\Scripts\\CONDA.EXE',
+  });
 
   await client.installPackages('/envs/demo', ['numpy']);
 
@@ -184,12 +209,31 @@ test('regular conda installs do not upgrade satisfied specs unless requested', a
   ]);
 });
 
+test('Conda clients reject non-conda executables before running a command', () => {
+  const runner = new RecordingRunner(() => success());
+  for (const executable of [
+    '/opt/tools/bin/solver',
+    'C:\\tools\\conda.bat',
+    'C:\\tools\\SOLVER.BAT',
+    'C:\\tools\\PYTHON.EXE',
+  ]) {
+    assert.throws(
+      () => new CondaClient({ runner, condaExecutable: executable }),
+      /must invoke conda/,
+    );
+  }
+  const conda = new CondaClient({ runner, condaExecutable: '/opt/miniforge3/bin/conda' });
+  assert.throws(() => conda.forExecutable('/opt/tools/bin/solver'), /must invoke conda/);
+  assert.deepEqual(runner.calls, []);
+});
+
 test('environment file creation uses a named target and the project directory', async () => {
-  const runner = new RecordingRunner(() => success(''));
+  const createdPrefix = path.resolve('/opt/conda/envs/demo');
+  const runner = new RecordingRunner(() => success({ actions: { PREFIX: createdPrefix } }));
   const client = new CondaClient({ runner });
   const environmentFile = path.resolve('/work/demo/environment.yml');
 
-  await client.createEnvironmentFromFile(environmentFile, 'demo');
+  assert.equal(await client.createEnvironmentFromFile(environmentFile, 'demo'), createdPrefix);
   assert.deepEqual(runner.calls[0], {
     executable: 'conda',
     args: ['create', '--yes', '--json', '--name', 'demo', '--file', environmentFile],
@@ -202,7 +246,7 @@ test('environment file creation uses a named target and the project directory', 
 });
 
 test('lockfile creation disables configured default packages', async () => {
-  const runner = new RecordingRunner(() => success(''));
+  const runner = new RecordingRunner(() => success({ prefix: '/opt/conda/envs/demo' }));
   const client = new CondaClient({ runner });
   const explicitFile = path.resolve('/work/demo/explicit.txt');
 
@@ -222,7 +266,7 @@ test('lockfile creation disables configured default packages', async () => {
   ]);
 });
 
-test('regular conda failures retain the command result', async () => {
+test('regular conda failures include the command error', async () => {
   const failure: CommandResult = {
     exitCode: 1,
     stdout: '',
@@ -230,13 +274,7 @@ test('regular conda failures retain the command result', async () => {
   };
   const client = new CondaClient({ runner: new RecordingRunner(() => failure) });
 
-  await assert.rejects(
-    client.installPackages('/envs/demo', ['missing']),
-    (error: unknown) =>
-      error instanceof CondaCommandError &&
-      error.result === failure &&
-      error.message.includes('PackagesNotFoundError'),
-  );
+  await assert.rejects(client.installPackages('/envs/demo', ['missing']), /PackagesNotFoundError/);
 });
 
 test('regular conda failures use the structured JSON message', async () => {
@@ -253,7 +291,7 @@ test('regular conda failures use the structured JSON message', async () => {
   await assert.rejects(
     client.createNamedEnvironment('root', ['python']),
     (error: unknown) =>
-      error instanceof CondaCommandError &&
+      error instanceof Error &&
       error.message.includes("'base' is a reserved environment name") &&
       !error.message.includes('unrelated warning'),
   );

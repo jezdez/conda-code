@@ -7,17 +7,20 @@ import type {
 
 export function condaShellCommands(
   rootPrefix: string,
-  identifier: string,
+  environmentPrefix: string,
 ): Pick<PythonEnvironmentExecutionInfo, 'shellActivation' | 'shellDeactivation'> {
   const pathFlavor =
     process.platform === 'win32' || /^[A-Za-z]:[\\/]/.test(rootPrefix) ? path.win32 : path;
+  if (!pathFlavor.isAbsolute(environmentPrefix)) {
+    throw new TypeError('environmentPrefix must be absolute');
+  }
   const condaSh = pathFlavor.join(rootPrefix, 'etc', 'profile.d', 'conda.sh');
   const condaFish = pathFlavor.join(rootPrefix, 'etc', 'fish', 'conf.d', 'conda.fish');
   const condaPowerShell = pathFlavor.join(rootPrefix, 'shell', 'condabin', 'conda-hook.ps1');
   const condaBatch = pathFlavor.join(rootPrefix, 'Scripts', 'activate.bat');
   const activate: PythonCommandRunConfiguration = {
     executable: 'conda',
-    args: ['activate', identifier],
+    args: ['activate', environmentPrefix],
   };
   const deactivate: PythonCommandRunConfiguration[] = [
     { executable: 'conda', args: ['deactivate'] },
@@ -37,7 +40,7 @@ export function condaShellCommands(
     ['sh', [{ executable: '.', args: [condaSh] }, activate]],
     ['fish', [{ executable: 'source', args: [condaFish] }, activate]],
     ['pwsh', [{ executable: '&', args: [condaPowerShell] }, activate]],
-    ['cmd', [{ executable: condaBatch, args: [identifier] }]],
+    ['cmd', [{ executable: condaBatch, args: [environmentPrefix] }]],
   ]);
   return {
     shellActivation,

@@ -15,10 +15,7 @@ function scopeKey(scope: Uri | undefined): string {
 export class CondaSelectionState {
   private pendingWrite: Promise<void> = Promise.resolve();
 
-  public constructor(
-    private readonly state: Memento,
-    private readonly selectionsKey = CONDA_SELECTIONS_KEY,
-  ) {}
+  public constructor(private readonly state: Memento) {}
 
   public set(scope: Uri | undefined, environmentId: string | undefined): Promise<void> {
     this.pendingWrite = this.pendingWrite.then(async () => {
@@ -29,7 +26,7 @@ export class CondaSelectionState {
       } else {
         selections[key] = environmentId;
       }
-      await this.state.update(this.selectionsKey, selections);
+      await this.state.update(CONDA_SELECTIONS_KEY, selections);
     });
     return this.pendingWrite;
   }
@@ -40,6 +37,6 @@ export class CondaSelectionState {
   }
 
   private read(): StoredSelections {
-    return { ...this.state.get<StoredSelections>(this.selectionsKey, {}) };
+    return { ...this.state.get<StoredSelections>(CONDA_SELECTIONS_KEY, {}) };
   }
 }

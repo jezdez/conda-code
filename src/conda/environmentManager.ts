@@ -1,4 +1,5 @@
 import { stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 
 import {
@@ -29,6 +30,13 @@ import {
 import { diffEnvironments } from './changes';
 import { CondaClient, type CondaInfo } from './conda';
 import {
+  discoverCondaPrefixes,
+  standardCondaRoots,
+  type CondaDiscoveryOptions,
+  type CondaDiscoveryResult,
+} from './discovery';
+import { fingerprintDiscoveryPaths } from './discoveryCache';
+import {
   condaPrefixCandidates,
   condaGlobalEnvironmentRoots,
   inspectCondaPrefix,
@@ -38,14 +46,13 @@ import {
   isRemovableCondaPrefix,
   isRemovableManagedProjectPrefix,
   pythonExecutablePath,
-  type CondaPrefixKind,
   type CondaPrefixMetadata,
 } from './prefixes';
 import { CondaSelectionState } from './selectionState';
 import { condaShellCommands } from './shellActivation';
 import {
+  canonicalEnvironmentPath,
   CondaWorkspaceRoute,
-  CondaWorkspaceRouteConflictError,
   CondaWorkspaceRouteManager,
   CondaWorkspaceRouteRegistry,
   dependencyFeature,
@@ -100,6 +107,12 @@ interface CachedPythonEnvironment {
   readonly item: PythonEnvironment;
 }
 
+interface RegularDiscoveryCache {
+  readonly sourceKey: string;
+  readonly fingerprint: string;
+  readonly result: CondaDiscoveryResult;
+}
+
 type CreateKind = 'workspace' | 'prefix' | 'named';
 
 type CreateChoice =
@@ -114,68 +127,13 @@ type CreateChoice =
 export interface CondaEnvironmentManagerOptions {
   readonly log?: LogOutputChannel;
   readonly shouldHandleManifest?: (manifest: Uri) => boolean | Promise<boolean>;
-}
-
-export class CondaBaseRemovalError extends Error {
-  public constructor() {
-    super('The base conda environment cannot be removed');
-    this.name = 'CondaBaseRemovalError';
-  }
-}
-
-export class CondaEnvironmentExistsError extends Error {
-  public constructor(prefix: string) {
-    super(`A file or directory already exists at ${prefix}`);
-    this.name = 'CondaEnvironmentExistsError';
-  }
-}
-
-export class CondaEnvironmentDefinitionConflictError extends Error {
-  public constructor(project: string, files: readonly string[]) {
-    super(
-      `Multiple project environment definitions found in ${project}: ${files.join(', ')}. ` +
-        'Use interactive creation to choose one',
-    );
-    this.name = 'CondaEnvironmentDefinitionConflictError';
-  }
-}
-
-export class CondaLockfilePackagesError extends Error {
-  public constructor(file: string) {
-    super(`Additional packages would change the environment locked by ${file}`);
-    this.name = 'CondaLockfilePackagesError';
-  }
-}
-
-export class CondaCreatedEnvironmentNotFoundError extends Error {
-  public constructor(name: string) {
-    super(`Conda created ${name}, but it was not reported by conda info`);
-    this.name = 'CondaCreatedEnvironmentNotFoundError';
-  }
-}
-
-export class CondaEnvironmentRemovalError extends Error {
-  public constructor(prefix: string) {
-    super(
-      `Conda Code can remove named environments and project .conda prefixes, but ${prefix} ` +
-        'does not have enough ownership information for safe removal',
-    );
-    this.name = 'CondaEnvironmentRemovalError';
-  }
-}
-
-export class CondaEnvironmentSelectionError extends Error {
-  public constructor(message: string) {
-    super(message);
-    this.name = 'CondaEnvironmentSelectionError';
-  }
-}
-
-export class CondaWorkspaceCreationError extends Error {
-  public constructor(project: string) {
-    super(`Conda Code does not create a conda workspace in ${project}`);
-    this.name = 'CondaWorkspaceCreationError';
-  }
+  readonly initialCondaInfo?: CondaInfo;
+  readonly enrichCondaInfo?: (options: {
+    readonly force: boolean;
+    readonly signal: AbortSignal;
+  }) => Promise<CondaInfo | undefined>;
+  readonly saveCondaInfo?: (info: CondaInfo | undefined) => void | Promise<void>;
+  readonly discovery?: Omit<CondaDiscoveryOptions, 'additionalPrefixes' | 'condaExecutable'>;
 }
 
 function uriKey(uri: Uri): string {
@@ -184,6 +142,10 @@ function uriKey(uri: Uri): string {
 
 function selectionKey(uri: Uri | undefined): string {
   return uri === undefined ? 'global' : uriKey(uri);
+}
+
+function selectionScope(key: string): Uri | undefined {
+  return key === 'global' ? undefined : Uri.parse(key, true);
 }
 
 function isWithin(root: Uri, candidate: Uri): boolean {
@@ -228,6 +190,62 @@ function expectedWorkspacePythonPath(prefix: string): string {
   return pythonExecutablePath(prefix, process.platform === 'win32' ? 'win-64' : 'linux-64');
 }
 
+function discoveryEnvironmentValues(
+  environment: NodeJS.ProcessEnv,
+): readonly (readonly [string, string])[] {
+  const fixedNames = new Set([
+    'CONDA_DEFAULT_ENV',
+    'CONDA_ENVS_DIRS',
+    'CONDA_ENVS_PATH',
+    'CONDA_EXE',
+    'CONDA_GLOBAL_HOME',
+    'CONDA_PYTHON_EXE',
+    'CONDA_ROOT_PREFIX',
+    'LOCALAPPDATA',
+    'PATH',
+    'Path',
+    'path',
+    'PATHEXT',
+    'PROGRAMDATA',
+    'XDG_DATA_HOME',
+  ]);
+  return Object.entries(environment)
+    .filter(
+      ([name, value]) =>
+        value !== undefined && (fixedNames.has(name) || /^CONDA_PREFIX(?:_\d+)?$/i.test(name)),
+    )
+    .map(([name, value]) => [name, value as string] as const)
+    .sort(([left], [right]) => left.localeCompare(right));
+}
+
+function discoverySourceKey(
+  info: CondaInfo | undefined,
+  primaryRootResolved: boolean,
+  condaExecutable: string | undefined,
+  additionalPrefixes: ReadonlySet<string>,
+  environment: NodeJS.ProcessEnv,
+  userHome: string,
+  roots: readonly string[],
+  includeGlobalSources: boolean,
+): string {
+  return JSON.stringify({
+    info,
+    primaryRootResolved,
+    condaExecutable,
+    additionalPrefixes: [...additionalPrefixes].sort(),
+    environment: discoveryEnvironmentValues(environment),
+    userHome,
+    roots,
+    includeGlobalSources,
+  });
+}
+
+function supportsCondaShellActivation(
+  environment: CondaPrefixMetadata,
+): environment is CondaPrefixMetadata & { readonly ownerRoot: string } {
+  return environment.ownerRoot !== undefined && environment.ownerExecutable !== undefined;
+}
+
 export class CondaEnvironmentManager
   implements EnvironmentManager, CondaWorkspaceRouteManager, Disposable
 {
@@ -243,21 +261,29 @@ export class CondaEnvironmentManager
   private readonly workspaceRoutesByManifest = new Map<string, readonly CondaWorkspaceRoute[]>();
   private readonly environmentItemsByPrefix = new Map<string, CachedPythonEnvironment>();
   private readonly activeByScope = new Map<string, PythonEnvironment>();
-  private readonly scopeUris = new Map<string, Uri | undefined>();
   private regularEnvironments: readonly PythonEnvironment[] = [];
-  private regularKindsByPrefix = new Map<string, CondaPrefixKind>();
+  private regularMetadataByPrefix = new Map<string, CondaPrefixMetadata>();
   private additionalRegularPrefixes = new Set<string>();
-  private protectedRegularPrefixes = new Set<string>();
   private reservedWorkspacePrefixes = new Set<string>();
   private reservedWorkspaceProjectRoots: readonly Uri[] = [];
   private condaInfo: CondaInfo | undefined;
-  private rootPrefix: string | undefined;
+  private condaInfoPrimaryRootResolved = false;
+  private regularDiscoveryCache: RegularDiscoveryCache | undefined;
+  private regularDiscoveryGeneration = 0;
   private readonly onDidChangeEnvironmentEmitter =
     new EventEmitter<DidChangeEnvironmentEventArgs>();
   private readonly onDidChangeEnvironmentsEmitter =
     new EventEmitter<DidChangeEnvironmentsEventArgs>();
-  private initialization: Promise<void> | undefined;
-  private refreshQueue: Promise<void> = Promise.resolve();
+  private hasInitialized = false;
+  private refreshQueue: Promise<void> | undefined;
+  private refreshAbortController: AbortController | undefined;
+  private refreshPending = false;
+  private clearQueue: Promise<void> | undefined;
+  private clearing = false;
+  private condaInfoEnrichment: Promise<void> | undefined;
+  private condaInfoEnrichmentAbortController: AbortController | undefined;
+  private condaInfoEnrichmentPending = false;
+  private disposed = false;
 
   public readonly onDidChangeEnvironment = this.onDidChangeEnvironmentEmitter.event;
   public readonly onDidChangeEnvironments = this.onDidChangeEnvironmentsEmitter.event;
@@ -275,6 +301,8 @@ export class CondaEnvironmentManager
     }
     this.preferredPackageManagerId = preferredPackageManagerId;
     this.log = options.log;
+    this.condaInfo = options.initialCondaInfo;
+    this.condaInfoPrimaryRootResolved = options.initialCondaInfo !== undefined;
   }
 
   public quickCreateConfig() {
@@ -317,7 +345,7 @@ export class CondaEnvironmentManager
     const definitionFiles = await this.findProjectDefinitionFiles(projectUri);
     const canCreateWorkspace = await this.canCreateWorkspace(projectUri);
     if (options.quickCreate === true && definitionFiles.length === 0 && !canCreateWorkspace) {
-      throw new CondaWorkspaceCreationError(projectUri.fsPath);
+      throw new Error(`Conda Code does not create a conda workspace in ${projectUri.fsPath}`);
     }
     const choice = await this.selectCreateChoice(
       options.quickCreate,
@@ -341,17 +369,20 @@ export class CondaEnvironmentManager
   }
 
   public async remove(environment: PythonEnvironment): Promise<void> {
-    await this.ensureInitialized();
+    await this.ensureInitialized(true);
     const prefix = environment.environmentPath.fsPath;
     if (this.routes.isConflictedPrefix(prefix)) {
-      throw new CondaWorkspaceRouteConflictError(prefix);
+      throw new Error(`Multiple conda workspace manifests claim the prefix ${prefix}`);
     }
     const current = this.getEnvironmentForPrefix(prefix);
     if (current === undefined) {
       return;
     }
     if (!isCurrentEnvironment(current, environment)) {
-      throw new CondaEnvironmentRemovalError(prefix);
+      throw new Error(
+        `Conda Code can remove named environments and project .conda prefixes, but ${prefix} ` +
+          'does not have enough ownership information for safe removal',
+      );
     }
     const route = this.routes.getRoute(current);
     if (route !== undefined) {
@@ -360,32 +391,71 @@ export class CondaEnvironmentManager
       return;
     }
 
-    if (
-      this.rootPrefix !== undefined &&
-      normalizeEnvironmentPath(current.environmentPath.fsPath) ===
-        normalizeEnvironmentPath(this.rootPrefix)
-    ) {
-      throw new CondaBaseRemovalError();
+    const metadata = this.regularMetadataByPrefix.get(
+      canonicalEnvironmentPath(current.environmentPath.fsPath),
+    );
+    if (metadata?.kind === 'base') {
+      throw new Error('The base conda environment cannot be removed');
     }
     if (!(await this.isRegularEnvironmentRemovable(current))) {
-      throw new CondaEnvironmentRemovalError(current.environmentPath.fsPath);
+      throw new Error(
+        `Conda Code can remove named environments and project .conda prefixes, but ` +
+          `${current.environmentPath.fsPath} does not have enough ownership information for safe removal`,
+      );
     }
-    await this.conda.removeEnvironment(current.environmentPath.fsPath);
+    const owner = metadata?.ownerExecutable;
+    if (owner === undefined) {
+      throw new Error(
+        `Conda Code can remove named environments and project .conda prefixes, but ` +
+          `${current.environmentPath.fsPath} does not have enough ownership information for safe removal`,
+      );
+    }
+    await this.conda.forExecutable(owner).removeEnvironment(current.environmentPath.fsPath);
+    this.invalidateRegularDiscovery();
     await this.refresh(undefined);
   }
 
   public refresh(scope: RefreshEnvironmentsScope): Promise<void> {
     void scope;
-    const refresh = this.refreshQueue.catch(() => undefined).then(() => this.refreshAll());
-    this.refreshQueue = refresh;
-    const initialized = refresh.catch((error: unknown) => {
-      if (this.initialization === initialized) {
-        this.initialization = undefined;
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+    if (this.clearQueue !== undefined) {
+      return this.clearQueue.then(() => this.refresh(scope));
+    }
+    if (this.refreshQueue !== undefined) {
+      this.refreshPending = true;
+      return this.refreshQueue;
+    }
+
+    const abortController = new AbortController();
+    this.refreshAbortController = abortController;
+    const refresh = (async () => {
+      do {
+        this.refreshPending = false;
+        try {
+          await this.refreshAll(abortController.signal);
+        } catch (error) {
+          if (!this.refreshPending) {
+            throw error;
+          }
+        }
+      } while (this.refreshPending);
+    })();
+    const queued = refresh.finally(() => {
+      if (this.refreshQueue === queued) {
+        this.refreshQueue = undefined;
+        if (this.refreshAbortController === abortController) {
+          this.refreshAbortController = undefined;
+        }
       }
-      throw error;
     });
-    this.initialization = initialized;
-    return initialized;
+    this.refreshQueue = queued;
+    void queued.then(
+      () => this.startCondaInfoEnrichment(),
+      () => undefined,
+    );
+    return queued;
   }
 
   public async getEnvironments(scope: GetEnvironmentsScope): Promise<PythonEnvironment[]> {
@@ -394,13 +464,11 @@ export class CondaEnvironmentManager
       return this.allEnvironments();
     }
     if (scope === 'global') {
-      if (this.rootPrefix === undefined) {
-        return [];
-      }
-      const expectedRoot = normalizeEnvironmentPath(this.rootPrefix);
       return this.regularEnvironments.filter(
         (environment) =>
-          normalizeEnvironmentPath(environment.environmentPath.fsPath) === expectedRoot,
+          this.regularMetadataByPrefix.get(
+            canonicalEnvironmentPath(environment.environmentPath.fsPath),
+          )?.kind === 'base',
       );
     }
 
@@ -411,7 +479,7 @@ export class CondaEnvironmentManager
   }
 
   public async set(scope: SetEnvironmentScope, environment?: PythonEnvironment): Promise<void> {
-    await this.ensureInitialized();
+    await this.ensureInitialized(true);
     const selected =
       environment === undefined
         ? undefined
@@ -420,7 +488,7 @@ export class CondaEnvironmentManager
       environment !== undefined &&
       (selected === undefined || !isCurrentEnvironment(selected, environment))
     ) {
-      throw new CondaEnvironmentSelectionError(
+      throw new Error(
         `Conda Code does not own the selected environment ${environment.environmentPath.fsPath}`,
       );
     }
@@ -433,7 +501,7 @@ export class CondaEnvironmentManager
     if (route !== undefined) {
       for (const selectedScope of selectedScopes) {
         if (selectedScope === undefined || uriKey(route.projectUri) !== uriKey(selectedScope)) {
-          throw new CondaEnvironmentSelectionError(
+          throw new Error(
             `Workspace environment ${route.prefix} belongs to ` +
               `${route.projectUri.fsPath}, not the requested scope`,
           );
@@ -446,10 +514,8 @@ export class CondaEnvironmentManager
       const oldEnvironment = this.activeByScope.get(key);
       if (selected === undefined) {
         this.activeByScope.delete(key);
-        this.scopeUris.delete(key);
       } else {
         this.activeByScope.set(key, selected);
-        this.scopeUris.set(key, selectedScope);
       }
       await this.selectionState.set(selectedScope, selected?.environmentPath.fsPath);
       this.fireSelectionChange(selectedScope, oldEnvironment, selected);
@@ -466,7 +532,7 @@ export class CondaEnvironmentManager
   }
 
   public async resolve(context: ResolveEnvironmentContext): Promise<PythonEnvironment | undefined> {
-    await this.ensureInitialized();
+    await this.ensureInitialized(true);
     if (context.scheme !== 'file') {
       return undefined;
     }
@@ -476,11 +542,11 @@ export class CondaEnvironmentManager
       return this.getEnvironmentForRoute(route);
     }
 
-    const expected = normalizeEnvironmentPath(context.fsPath);
+    const expected = canonicalEnvironmentPath(context.fsPath);
     for (const environment of this.allEnvironments()) {
       if (
-        normalizeEnvironmentPath(environment.environmentPath.fsPath) === expected ||
-        normalizeEnvironmentPath(environment.execInfo.run.executable) === expected
+        canonicalEnvironmentPath(environment.environmentPath.fsPath) === expected ||
+        canonicalEnvironmentPath(environment.execInfo.run.executable) === expected
       ) {
         return environment;
       }
@@ -492,13 +558,13 @@ export class CondaEnvironmentManager
     }
     const globalRoots = condaGlobalEnvironmentRoots();
     for (const candidate of condaPrefixCandidates(context.fsPath)) {
-      const metadata = await inspectCondaPrefix(candidate, info);
+      const metadata = await this.inspectRegularPrefix(candidate, info);
       if (
         metadata === undefined ||
         isCondaGlobalPrefix(metadata.prefix, globalRoots) ||
         isPixiEnvironmentPrefix(metadata.prefix) ||
         this.routes.isConflictedPrefix(metadata.prefix) ||
-        this.reservedWorkspacePrefixes.has(normalizeEnvironmentPath(metadata.prefix)) ||
+        this.reservedWorkspacePrefixes.has(canonicalEnvironmentPath(metadata.prefix)) ||
         this.reservedWorkspaceProjectRoots.some(
           (project) => project.scheme === 'file' && isPathWithin(project.fsPath, metadata.prefix),
         )
@@ -506,14 +572,11 @@ export class CondaEnvironmentManager
         continue;
       }
       const previous = this.allEnvironments();
-      const environment = this.toRegularPythonEnvironment(metadata, info.rootPrefix);
-      const prefixKey = normalizeEnvironmentPath(metadata.prefix);
+      const environment = this.toRegularPythonEnvironment(metadata);
+      const prefixKey = canonicalEnvironmentPath(metadata.prefix);
       this.regularEnvironments = this.mergeEnvironments(this.regularEnvironments, [environment]);
-      this.regularKindsByPrefix.set(prefixKey, metadata.kind);
+      this.regularMetadataByPrefix.set(prefixKey, metadata);
       this.additionalRegularPrefixes.add(metadata.prefix);
-      if (metadata.condaInstallation) {
-        this.protectedRegularPrefixes.add(prefixKey);
-      }
       const changes = diffEnvironments(previous, this.allEnvironments());
       if (changes.length > 0) {
         this.onDidChangeEnvironmentsEmitter.fire(changes);
@@ -523,39 +586,85 @@ export class CondaEnvironmentManager
     return undefined;
   }
 
-  public async clearCache(): Promise<void> {
-    await this.refreshQueue.catch(() => undefined);
-    const environments = this.allEnvironments();
-    const active = new Map(this.activeByScope);
-    const scopes = new Map(this.scopeUris);
-
-    this.initialization = undefined;
-    this.condaInfo = undefined;
-    this.rootPrefix = undefined;
-    this.regularEnvironments = [];
-    this.regularKindsByPrefix.clear();
-    this.additionalRegularPrefixes.clear();
-    this.protectedRegularPrefixes.clear();
-    this.reservedWorkspacePrefixes.clear();
-    this.reservedWorkspaceProjectRoots = [];
-    this.workspacesByProject.clear();
-    this.workspaceRoutesByManifest.clear();
-    this.activeByScope.clear();
-    this.scopeUris.clear();
-    this.environmentItemsByPrefix.clear();
-    this.routes.clear();
-
-    const changes = diffEnvironments(environments, []);
-    if (changes.length > 0) {
-      this.onDidChangeEnvironmentsEmitter.fire(changes);
+  public clearCache(): Promise<void> {
+    if (this.disposed) {
+      return Promise.resolve();
     }
-    for (const [key, oldEnvironment] of active) {
-      this.fireSelectionChange(scopes.get(key), oldEnvironment, undefined);
+    if (this.clearQueue !== undefined) {
+      return this.clearQueue;
     }
+
+    this.clearing = true;
+    const refresh = this.refreshQueue;
+    this.refreshAbortController?.abort();
+    const enrichment = this.condaInfoEnrichment;
+    this.condaInfoEnrichmentAbortController?.abort();
+    this.condaInfoEnrichmentPending = false;
+    const clearing = (async () => {
+      await Promise.all([refresh?.catch(() => undefined), enrichment?.catch(() => undefined)]);
+      if (this.disposed) {
+        return;
+      }
+      const environments = this.allEnvironments();
+      const active = new Map(this.activeByScope);
+
+      this.hasInitialized = false;
+      this.refreshPending = false;
+      this.condaInfo = undefined;
+      this.condaInfoPrimaryRootResolved = false;
+      this.regularDiscoveryCache = undefined;
+      this.regularDiscoveryGeneration += 1;
+      this.condaInfoEnrichment = undefined;
+      this.condaInfoEnrichmentAbortController = undefined;
+      this.regularEnvironments = [];
+      this.regularMetadataByPrefix.clear();
+      this.additionalRegularPrefixes.clear();
+      this.reservedWorkspacePrefixes.clear();
+      this.reservedWorkspaceProjectRoots = [];
+      this.workspacesByProject.clear();
+      this.workspaceRoutesByManifest.clear();
+      this.activeByScope.clear();
+      this.environmentItemsByPrefix.clear();
+      this.routes.clear();
+      await this.options.saveCondaInfo?.(undefined);
+
+      const changes = diffEnvironments(environments, []);
+      if (changes.length > 0) {
+        this.onDidChangeEnvironmentsEmitter.fire(changes);
+      }
+      for (const [key, oldEnvironment] of active) {
+        this.fireSelectionChange(selectionScope(key), oldEnvironment, undefined);
+      }
+    })();
+    const queued = clearing.finally(() => {
+      if (this.clearQueue === queued) {
+        this.clearQueue = undefined;
+        this.clearing = false;
+        if (this.condaInfoEnrichmentPending && !this.disposed) {
+          this.startCondaInfoEnrichment();
+        }
+      }
+    });
+    this.clearQueue = queued;
+    return queued;
   }
 
   public getRoute(environment: PythonEnvironment): CondaWorkspaceRoute | undefined {
     return this.routes.getRoute(environment);
+  }
+
+  public invalidateRegularDiscovery(): void {
+    this.regularDiscoveryCache = undefined;
+    this.regularDiscoveryGeneration += 1;
+  }
+
+  public invalidateCondaInfo(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.condaInfoEnrichmentAbortController?.abort();
+    this.condaInfoEnrichmentPending = true;
+    this.startCondaInfoEnrichment();
   }
 
   public async getWorkspaceManifests(): Promise<Uri[]> {
@@ -564,55 +673,78 @@ export class CondaEnvironmentManager
   }
 
   public dispose(): void {
+    this.disposed = true;
+    this.hasInitialized = false;
+    this.refreshAbortController?.abort();
+    this.refreshAbortController = undefined;
+    this.condaInfoEnrichmentAbortController?.abort();
+    this.condaInfoEnrichmentAbortController = undefined;
+    this.condaInfoEnrichmentPending = false;
+    this.condaInfoEnrichment = undefined;
     this.onDidChangeEnvironmentEmitter.dispose();
     this.onDidChangeEnvironmentsEmitter.dispose();
     this.regularEnvironments = [];
-    this.regularKindsByPrefix.clear();
+    this.regularMetadataByPrefix.clear();
+    this.regularDiscoveryCache = undefined;
+    this.regularDiscoveryGeneration += 1;
     this.additionalRegularPrefixes.clear();
-    this.protectedRegularPrefixes.clear();
     this.reservedWorkspacePrefixes.clear();
     this.reservedWorkspaceProjectRoots = [];
     this.workspacesByProject.clear();
     this.workspaceRoutesByManifest.clear();
     this.activeByScope.clear();
-    this.scopeUris.clear();
     this.environmentItemsByPrefix.clear();
     this.routes.clear();
   }
 
-  private async ensureInitialized(): Promise<void> {
-    if (this.initialization === undefined) {
+  private async ensureInitialized(waitForRefresh = false): Promise<void> {
+    if (this.hasInitialized) {
+      if (waitForRefresh) {
+        await this.refreshQueue;
+      }
+      return;
+    }
+    if (this.refreshQueue === undefined) {
       await this.refresh(undefined);
       return;
     }
-    await this.initialization;
+    await this.refreshQueue;
   }
 
-  private async refreshAll(): Promise<void> {
+  private async refreshAll(signal: AbortSignal): Promise<void> {
+    if (this.disposed || signal.aborted) {
+      return;
+    }
     const previousEnvironments = this.allEnvironments();
     const previousActive = new Map(this.activeByScope);
-    const previousScopes = new Map(this.scopeUris);
     const previousCache = new Map(this.environmentItemsByPrefix);
     let nextState: {
       readonly routeEntries: readonly CondaWorkspaceRoute[];
       readonly workspaceRoutesByManifest: ReadonlyMap<string, readonly CondaWorkspaceRoute[]>;
       readonly condaInfo: Awaited<ReturnType<CondaClient['getInfo']>>;
       readonly regularEnvironments: readonly PythonEnvironment[];
-      readonly regularKindsByPrefix: ReadonlyMap<string, CondaPrefixKind>;
+      readonly regularMetadataByPrefix: ReadonlyMap<string, CondaPrefixMetadata>;
       readonly additionalRegularPrefixes: ReadonlySet<string>;
-      readonly protectedRegularPrefixes: ReadonlySet<string>;
       readonly reservedWorkspacePrefixes: ReadonlySet<string>;
       readonly reservedWorkspaceProjectRoots: readonly Uri[];
       readonly workspaces: readonly DiscoveredWorkspace[];
       readonly environments: readonly PythonEnvironment[];
       readonly activeByScope: ReadonlyMap<string, PythonEnvironment>;
-      readonly scopeUris: ReadonlyMap<string, Uri | undefined>;
       readonly invalidSelections: readonly (Uri | undefined)[];
     };
 
     try {
-      const condaInfo = await this.conda.getInfo();
-      const workspaceDiscovery = await this.discoverWorkspaces(condaInfo.platform);
+      const regularDiscovery = await this.getDiscovery();
+      const condaInfo = regularDiscovery.info;
+      if (this.disposed || signal.aborted) {
+        this.environmentItemsByPrefix.clear();
+        return;
+      }
+      const workspaceDiscovery = await this.discoverWorkspaces(condaInfo.platform, signal);
+      if (this.disposed || signal.aborted) {
+        this.environmentItemsByPrefix.clear();
+        return;
+      }
       const globalRoots = condaGlobalEnvironmentRoots();
       const failedManifestKeys = new Set<string>();
       const failedProjectRoots: Uri[] = [];
@@ -672,7 +804,7 @@ export class CondaEnvironmentManager
             ),
           ),
           ...[...workspaceRoutesByManifest.values()].flat().map((route) => route.prefix),
-        ].map(normalizeEnvironmentPath),
+        ].map(canonicalEnvironmentPath),
       );
       const workspaces = workspaceCandidates.map((entry) => ({
         ...entry,
@@ -688,24 +820,27 @@ export class CondaEnvironmentManager
         )
         .map((entry) => entry.projectUri);
       const reservedWorkspaceProjectRoots = [...failedProjectRoots, ...incompleteProjectRoots];
-      const regular = await this.discoverRegularEnvironments(
-        condaInfo,
+      const regular = this.regularEnvironmentsFromDiscovery(
+        regularDiscovery,
         workspacePrefixes,
         globalRoots,
         reservedWorkspaceProjectRoots,
       );
+      if (this.disposed || signal.aborted) {
+        this.environmentItemsByPrefix.clear();
+        return;
+      }
       const environments = this.mergeEnvironments(
         regular.environments,
         workspaces.flatMap((entry) => entry.environments),
       );
       const environmentsByPrefix = new Map(
         environments.map((environment) => [
-          normalizeEnvironmentPath(environment.environmentPath.fsPath),
+          canonicalEnvironmentPath(environment.environmentPath.fsPath),
           environment,
         ]),
       );
       const activeByScope = new Map<string, PythonEnvironment>();
-      const scopeUris = new Map<string, Uri | undefined>();
       const invalidSelections: (Uri | undefined)[] = [];
       const unverifiedProjectRoots = [
         ...failedProjectRoots,
@@ -717,19 +852,23 @@ export class CondaEnvironmentManager
         workspaceCandidates
           .flatMap((entry) => entry.environmentFailures)
           .flatMap((failure) => (failure.prefix === undefined ? [] : [failure.prefix]))
-          .map(normalizeEnvironmentPath),
+          .map(canonicalEnvironmentPath),
       );
       const storedSelections = await this.selectionState.entries();
+      if (this.disposed || signal.aborted) {
+        this.environmentItemsByPrefix.clear();
+        return;
+      }
       for (const [storedKey, prefix] of Object.entries(storedSelections)) {
         const scope = storedKey === 'global' ? undefined : Uri.parse(storedKey, true);
         const key = selectionKey(scope);
-        const environment = environmentsByPrefix.get(normalizeEnvironmentPath(prefix));
+        const environment = environmentsByPrefix.get(canonicalEnvironmentPath(prefix));
         const route = environment === undefined ? undefined : routes.getRoute(environment);
         const unverifiedSelection =
           environment === undefined &&
           ((scope !== undefined &&
             unverifiedProjectRoots.some((project) => uriKey(project) === uriKey(scope))) ||
-            failedEnvironmentPrefixes.has(normalizeEnvironmentPath(prefix)));
+            failedEnvironmentPrefixes.has(canonicalEnvironmentPath(prefix)));
         if (
           (environment === undefined && !unverifiedSelection) ||
           (scope === undefined && route !== undefined) ||
@@ -740,21 +879,20 @@ export class CondaEnvironmentManager
         }
         if (environment !== undefined) {
           activeByScope.set(key, environment);
-          scopeUris.set(key, scope);
         }
       }
 
       if (!activeByScope.has('global')) {
         const fallbackPrefixes = [
           condaInfo.activePrefix,
-          condaInfo.defaultPrefix,
-          condaInfo.rootPrefix,
+          ...(this.condaInfoPrimaryRootResolved
+            ? [condaInfo.defaultPrefix, condaInfo.rootPrefix]
+            : []),
         ].filter((prefix): prefix is string => prefix !== null);
-        for (const fallbackPrefix of new Set(fallbackPrefixes.map(normalizeEnvironmentPath))) {
+        for (const fallbackPrefix of new Set(fallbackPrefixes.map(canonicalEnvironmentPath))) {
           const fallback = environmentsByPrefix.get(fallbackPrefix);
           if (fallback !== undefined && routes.getRoute(fallback) === undefined) {
             activeByScope.set('global', fallback);
-            scopeUris.set('global', undefined);
             break;
           }
         }
@@ -765,15 +903,13 @@ export class CondaEnvironmentManager
         workspaceRoutesByManifest,
         condaInfo,
         regularEnvironments: regular.environments,
-        regularKindsByPrefix: regular.kindsByPrefix,
+        regularMetadataByPrefix: regular.metadataByPrefix,
         additionalRegularPrefixes: regular.additionalPrefixes,
-        protectedRegularPrefixes: regular.protectedPrefixes,
         reservedWorkspacePrefixes: failedEnvironmentPrefixes,
         reservedWorkspaceProjectRoots,
         workspaces,
         environments,
         activeByScope,
-        scopeUris,
         invalidSelections,
       };
     } catch (error) {
@@ -784,9 +920,13 @@ export class CondaEnvironmentManager
       throw error;
     }
 
+    if (this.disposed || signal.aborted) {
+      this.environmentItemsByPrefix.clear();
+      return;
+    }
     const discoveredPrefixes = new Set(
       nextState.environments.map((environment) =>
-        normalizeEnvironmentPath(environment.environmentPath.fsPath),
+        canonicalEnvironmentPath(environment.environmentPath.fsPath),
       ),
     );
     for (const prefix of this.environmentItemsByPrefix.keys()) {
@@ -795,12 +935,9 @@ export class CondaEnvironmentManager
       }
     }
     this.routes.replaceAll(nextState.routeEntries);
-    this.condaInfo = nextState.condaInfo;
-    this.rootPrefix = nextState.condaInfo.rootPrefix;
     this.regularEnvironments = nextState.regularEnvironments;
-    this.regularKindsByPrefix = new Map(nextState.regularKindsByPrefix);
+    this.regularMetadataByPrefix = new Map(nextState.regularMetadataByPrefix);
     this.additionalRegularPrefixes = new Set(nextState.additionalRegularPrefixes);
-    this.protectedRegularPrefixes = new Set(nextState.protectedRegularPrefixes);
     this.reservedWorkspacePrefixes = new Set(nextState.reservedWorkspacePrefixes);
     this.reservedWorkspaceProjectRoots = [...nextState.reservedWorkspaceProjectRoots];
     this.workspacesByProject.clear();
@@ -815,99 +952,219 @@ export class CondaEnvironmentManager
     for (const [key, environment] of nextState.activeByScope) {
       this.activeByScope.set(key, environment);
     }
-    this.scopeUris.clear();
-    for (const [key, scope] of nextState.scopeUris) {
-      this.scopeUris.set(key, scope);
-    }
 
     const changes = diffEnvironments(previousEnvironments, nextState.environments);
     if (changes.length > 0) {
       this.onDidChangeEnvironmentsEmitter.fire(changes);
     }
     for (const [key, environment] of nextState.activeByScope) {
-      const scope = nextState.scopeUris.get(key);
+      const scope = selectionScope(key);
       this.fireSelectionChange(scope, previousActive.get(key), environment);
       previousActive.delete(key);
     }
     for (const [key, oldEnvironment] of previousActive) {
-      this.fireSelectionChange(previousScopes.get(key), oldEnvironment, undefined);
+      this.fireSelectionChange(selectionScope(key), oldEnvironment, undefined);
     }
     for (const scope of nextState.invalidSelections) {
+      if (this.disposed || signal.aborted) {
+        return;
+      }
       try {
         await this.selectionState.set(scope, undefined);
       } catch (error) {
         this.log?.warn(`Could not clear an invalid conda selection: ${errorMessage(error)}`);
       }
     }
+    this.hasInitialized = true;
   }
 
-  private async discoverRegularEnvironments(
-    info: Awaited<ReturnType<CondaClient['getInfo']>>,
+  private async getDiscovery(): Promise<CondaDiscoveryResult> {
+    const infoSnapshot = this.condaInfo;
+    const condaExecutable =
+      typeof this.conda.executable === 'string' && this.conda.executable.trim() !== ''
+        ? this.conda.executable
+        : undefined;
+    let info = this.condaInfo;
+    let primaryRootResolved = this.condaInfoPrimaryRootResolved;
+    if (info === undefined && condaExecutable === undefined) {
+      info = await this.conda.getInfo();
+      primaryRootResolved = true;
+    }
+    const environment = this.options.discovery?.environment ?? process.env;
+    const userHome = this.options.discovery?.userHome ?? homedir();
+    const includeGlobalSources =
+      this.options.discovery?.includeGlobalSources ?? condaExecutable !== undefined;
+    const roots =
+      this.options.discovery?.standardRoots ??
+      (includeGlobalSources ? standardCondaRoots(environment, userHome) : []);
+    const sourceKey = discoverySourceKey(
+      info,
+      primaryRootResolved,
+      condaExecutable,
+      this.additionalRegularPrefixes,
+      environment,
+      userHome,
+      roots,
+      includeGlobalSources,
+    );
+    const cached = this.regularDiscoveryCache;
+    let result: CondaDiscoveryResult;
+    if (
+      cached !== undefined &&
+      cached.sourceKey === sourceKey &&
+      (await fingerprintDiscoveryPaths(cached.result.watchPaths)) === cached.fingerprint
+    ) {
+      result = cached.result;
+    } else {
+      const generation = this.regularDiscoveryGeneration;
+      result = await discoverCondaPrefixes(info, {
+        ...this.options.discovery,
+        environment,
+        userHome,
+        standardRoots: roots,
+        ...(condaExecutable === undefined ? {} : { condaExecutable }),
+        additionalPrefixes: [...this.additionalRegularPrefixes],
+        includeGlobalSources,
+      });
+      const fingerprint = await fingerprintDiscoveryPaths(result.watchPaths);
+      if (generation === this.regularDiscoveryGeneration) {
+        this.regularDiscoveryCache = {
+          sourceKey: discoverySourceKey(
+            result.info,
+            result.primaryRootResolved,
+            condaExecutable,
+            this.additionalRegularPrefixes,
+            environment,
+            userHome,
+            roots,
+            includeGlobalSources,
+          ),
+          fingerprint,
+          result,
+        };
+      }
+    }
+    if (!this.disposed && this.condaInfo === infoSnapshot) {
+      this.condaInfo = result.info;
+      this.condaInfoPrimaryRootResolved = result.primaryRootResolved;
+    }
+    return result;
+  }
+
+  private startCondaInfoEnrichment(): void {
+    if (this.disposed || this.clearing || this.condaInfoEnrichment !== undefined) {
+      return;
+    }
+    const enrichCondaInfo = this.options.enrichCondaInfo;
+    if (enrichCondaInfo === undefined) {
+      return;
+    }
+    const force = this.condaInfoEnrichmentPending;
+    this.condaInfoEnrichmentPending = false;
+    const abortController = new AbortController();
+    this.condaInfoEnrichmentAbortController = abortController;
+    const enrichment = Promise.resolve()
+      .then(() => enrichCondaInfo({ force, signal: abortController.signal }))
+      .then(async (info) => {
+        if (info === undefined || this.disposed || abortController.signal.aborted) {
+          return;
+        }
+        const changed = JSON.stringify(info) !== JSON.stringify(this.condaInfo);
+        try {
+          await this.options.saveCondaInfo?.(info);
+        } catch (error) {
+          this.log?.debug(`Could not save conda discovery information: ${errorMessage(error)}`);
+        }
+        if (this.disposed || abortController.signal.aborted) {
+          return;
+        }
+        this.condaInfo = info;
+        this.condaInfoPrimaryRootResolved = true;
+        if (changed) {
+          await this.refresh(undefined);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!abortController.signal.aborted) {
+          this.log?.debug(`Could not enrich conda discovery information: ${errorMessage(error)}`);
+        }
+      })
+      .finally(() => {
+        if (this.condaInfoEnrichment === enrichment) {
+          this.condaInfoEnrichment = undefined;
+          if (this.condaInfoEnrichmentAbortController === abortController) {
+            this.condaInfoEnrichmentAbortController = undefined;
+          }
+          if (this.condaInfoEnrichmentPending && !this.disposed) {
+            this.startCondaInfoEnrichment();
+          }
+        }
+      });
+    this.condaInfoEnrichment = enrichment;
+  }
+
+  private regularEnvironmentsFromDiscovery(
+    discovery: CondaDiscoveryResult,
     workspacePrefixes: ReadonlySet<string>,
     globalRoots: readonly string[],
     reservedProjectRoots: readonly Uri[],
-  ): Promise<{
+  ): {
     readonly environments: readonly PythonEnvironment[];
-    readonly kindsByPrefix: ReadonlyMap<string, CondaPrefixKind>;
+    readonly metadataByPrefix: ReadonlyMap<string, CondaPrefixMetadata>;
     readonly additionalPrefixes: ReadonlySet<string>;
-    readonly protectedPrefixes: ReadonlySet<string>;
-  }> {
+  } {
     const additionalPrefixKeys = new Set(
-      [...this.additionalRegularPrefixes].map(normalizeEnvironmentPath),
+      [...this.additionalRegularPrefixes].map(canonicalEnvironmentPath),
     );
-    const prefixes = [
-      ...new Map(
-        [info.rootPrefix, ...info.envs, ...this.additionalRegularPrefixes].map((prefix) => [
-          normalizeEnvironmentPath(prefix),
-          prefix,
-        ]),
-      ).values(),
-    ];
-    const metadata = await Promise.all(
-      prefixes
-        .filter(
-          (prefix) =>
-            !workspacePrefixes.has(normalizeEnvironmentPath(prefix)) &&
-            !isCondaGlobalPrefix(prefix, globalRoots) &&
-            !isPixiEnvironmentPrefix(prefix) &&
-            !reservedProjectRoots.some(
-              (project) => project.scheme === 'file' && isPathWithin(project.fsPath, prefix),
-            ),
-        )
-        .map((prefix) => inspectCondaPrefix(prefix, info)),
+    const metadata = discovery.metadata.filter(
+      (item) =>
+        !workspacePrefixes.has(canonicalEnvironmentPath(item.prefix)) &&
+        !isCondaGlobalPrefix(item.prefix, globalRoots) &&
+        !isPixiEnvironmentPrefix(item.prefix) &&
+        !reservedProjectRoots.some(
+          (project) => project.scheme === 'file' && isPathWithin(project.fsPath, item.prefix),
+        ),
     );
-    const environments = metadata
-      .filter((item): item is CondaPrefixMetadata => item !== undefined)
-      .map((item) => this.toRegularPythonEnvironment(item, info.rootPrefix));
-    const kindsByPrefix = new Map(
-      metadata
-        .filter((item): item is CondaPrefixMetadata => item !== undefined)
-        .map((item) => [normalizeEnvironmentPath(item.prefix), item.kind]),
+    const environments = metadata.map((item) => this.toRegularPythonEnvironment(item));
+    const metadataByPrefix = new Map(
+      metadata.map((item) => [canonicalEnvironmentPath(item.prefix), item]),
     );
     const additionalPrefixes = new Set(
       metadata
-        .filter(
-          (item): item is CondaPrefixMetadata =>
-            item !== undefined && additionalPrefixKeys.has(normalizeEnvironmentPath(item.prefix)),
-        )
+        .filter((item) => additionalPrefixKeys.has(canonicalEnvironmentPath(item.prefix)))
         .map((item) => item.prefix),
     );
-    const protectedPrefixes = new Set(
-      metadata
-        .filter((item): item is CondaPrefixMetadata => item !== undefined && item.condaInstallation)
-        .map((item) => normalizeEnvironmentPath(item.prefix)),
-    );
     environments.sort((left, right) => left.displayName.localeCompare(right.displayName));
-    return { environments, kindsByPrefix, additionalPrefixes, protectedPrefixes };
+    return { environments, metadataByPrefix, additionalPrefixes };
   }
 
-  private toRegularPythonEnvironment(
-    environment: CondaPrefixMetadata,
-    rootPrefix: string,
-  ): PythonEnvironment {
+  private async inspectRegularPrefix(
+    prefix: string,
+    info: Awaited<ReturnType<CondaClient['getInfo']>>,
+  ): Promise<CondaPrefixMetadata | undefined> {
+    const prefixKey = canonicalEnvironmentPath(prefix);
+    const ownedByPrimary =
+      this.condaInfoPrimaryRootResolved &&
+      (prefixKey === canonicalEnvironmentPath(info.rootPrefix) ||
+        info.envsDirs.some(
+          (directory) => path.dirname(prefixKey) === canonicalEnvironmentPath(directory),
+        ));
+    const condaExecutable =
+      typeof this.conda.executable === 'string' && this.conda.executable.trim() !== ''
+        ? this.conda.executable
+        : undefined;
+    return inspectCondaPrefix(prefix, info, {
+      ...(ownedByPrimary ? { ownerRoot: info.rootPrefix, ownerEnvsDirs: info.envsDirs } : {}),
+      ...(ownedByPrimary && condaExecutable !== undefined
+        ? { ownerExecutable: condaExecutable }
+        : {}),
+      primaryRootTrusted: this.condaInfoPrimaryRootResolved,
+    });
+  }
+
+  private toRegularPythonEnvironment(environment: CondaPrefixMetadata): PythonEnvironment {
     const version = environment.pythonVersion ?? 'no-python';
     const displayName = `${environment.name} (${version})`;
-    const identifier = environment.kind === 'prefix' ? environment.prefix : environment.name;
     const info: PythonEnvironmentInfo = {
       name: environment.name,
       displayName,
@@ -926,7 +1183,9 @@ export class CondaEnvironmentManager
       execInfo: {
         run: { executable: environment.pythonPath },
         activatedRun: { executable: environment.pythonPath },
-        ...condaShellCommands(rootPrefix, identifier),
+        ...(!supportsCondaShellActivation(environment)
+          ? {}
+          : condaShellCommands(environment.ownerRoot, environment.prefix)),
       },
       sysPrefix: environment.prefix,
       group:
@@ -935,10 +1194,19 @@ export class CondaEnvironmentManager
         ? {}
         : { error: 'Python is not installed in this conda environment' }),
     };
-    return this.cachedEnvironment(info, ['regular', environment.kind, environment.pythonExists]);
+    return this.cachedEnvironment(info, [
+      'regular',
+      environment.kind,
+      environment.pythonExists,
+      environment.ownerRoot,
+      environment.ownerExecutable,
+    ]);
   }
 
-  private async discoverWorkspaces(condaPlatform: string): Promise<WorkspaceDiscovery> {
+  private async discoverWorkspaces(
+    condaPlatform: string,
+    signal: AbortSignal,
+  ): Promise<WorkspaceDiscovery> {
     const manifestGroups = await Promise.all(
       MANIFEST_NAMES.map((name) => workspace.findFiles(`**/${name}`, MANIFEST_EXCLUDE)),
     );
@@ -958,6 +1226,9 @@ export class CondaEnvironmentManager
     const discovered: DiscoveredWorkspace[] = [];
     const failures: FailedWorkspaceDiscovery[] = [];
     for (const candidate of candidates) {
+      if (signal.aborted) {
+        break;
+      }
       const directory = normalizeEnvironmentPath(path.dirname(candidate.fsPath));
       if (directories.has(directory)) {
         continue;
@@ -979,7 +1250,7 @@ export class CondaEnvironmentManager
           );
           continue;
         }
-        const info = await this.workspaces.getWorkspaceInfo(candidate.fsPath);
+        const info = await this.workspaces.getWorkspaceInfo(candidate.fsPath, { signal });
         const manifestUri = Uri.file(info.manifest);
         const projectUri = this.exactPythonProject(Uri.file(path.dirname(info.manifest)));
         if (projectUri === undefined) {
@@ -988,6 +1259,7 @@ export class CondaEnvironmentManager
         const discovery = await this.workspaces.discoverInstalledEnvironments(
           info.manifest,
           condaPlatform,
+          { signal },
         );
         const converted = discovery.environments.map((environment) => ({
           source: environment,
@@ -1002,8 +1274,8 @@ export class CondaEnvironmentManager
           const environment = previous?.environments.find(
             (candidate) =>
               (failure.prefix !== undefined &&
-                normalizeEnvironmentPath(candidate.environmentPath.fsPath) ===
-                  normalizeEnvironmentPath(failure.prefix)) ||
+                canonicalEnvironmentPath(candidate.environmentPath.fsPath) ===
+                  canonicalEnvironmentPath(failure.prefix)) ||
               candidate.name === failure.environmentName,
           );
           return environment === undefined ? [] : [environment];
@@ -1015,9 +1287,9 @@ export class CondaEnvironmentManager
         const featuresByPrefix = new Map<string, readonly string[]>();
         const directCondaDependenciesByPrefix = new Map<string, readonly string[]>();
         for (const environment of environments) {
-          const prefixKey = normalizeEnvironmentPath(environment.environmentPath.fsPath);
+          const prefixKey = canonicalEnvironmentPath(environment.environmentPath.fsPath);
           const current = converted.find(
-            ({ item }) => normalizeEnvironmentPath(item.environmentPath.fsPath) === prefixKey,
+            ({ item }) => canonicalEnvironmentPath(item.environmentPath.fsPath) === prefixKey,
           )?.source;
           featuresByPrefix.set(
             prefixKey,
@@ -1047,6 +1319,9 @@ export class CondaEnvironmentManager
           environmentFailures: discovery.failures,
         });
       } catch (error) {
+        if (signal.aborted) {
+          break;
+        }
         const manifestKey = normalizeEnvironmentPath(candidate.fsPath);
         if (
           path.basename(candidate.fsPath) !== 'pyproject.toml' ||
@@ -1112,7 +1387,7 @@ export class CondaEnvironmentManager
     info: PythonEnvironmentInfo,
     fingerprintParts: readonly unknown[],
   ): PythonEnvironment {
-    const prefix = normalizeEnvironmentPath(info.environmentPath.fsPath);
+    const prefix = canonicalEnvironmentPath(info.environmentPath.fsPath);
     const fingerprint = JSON.stringify([
       info.name,
       info.displayName,
@@ -1208,9 +1483,10 @@ export class CondaEnvironmentManager
   ): Promise<CreateChoice | undefined> {
     if (quickCreate === true) {
       if (definitionFiles.length > 1) {
-        throw new CondaEnvironmentDefinitionConflictError(
-          projectUri.fsPath,
-          definitionFiles.map((file) => path.basename(file.fsPath)),
+        throw new Error(
+          `Multiple project environment definitions found in ${projectUri.fsPath}: ` +
+            `${definitionFiles.map((file) => path.basename(file.fsPath)).join(', ')}. ` +
+            'Use interactive creation to choose one',
         );
       }
       const definitionFile = definitionFiles[0];
@@ -1277,22 +1553,25 @@ export class CondaEnvironmentManager
     );
     const filename = path.basename(definitionFile.fsPath).toLowerCase();
     if (PROJECT_LOCK_FILE_NAMES.has(filename) && additionalPackages.length > 0) {
-      throw new CondaLockfilePackagesError(filename);
+      throw new Error(`Additional packages would change the environment locked by ${filename}`);
     }
     const name = await this.selectNamedEnvironmentName(projectUri, options.quickCreate === true);
     if (name === undefined) {
       return undefined;
     }
-    await this.conda.createEnvironmentFromFile(definitionFile.fsPath, name, {
+    const createdPrefix = await this.conda.createEnvironmentFromFile(definitionFile.fsPath, name, {
       noDefaultPackages: PROJECT_LOCK_FILE_NAMES.has(filename),
     });
+    this.additionalRegularPrefixes.add(createdPrefix);
+    this.invalidateRegularDiscovery();
     await this.refresh(projectUri);
-    const created = this.getNamedEnvironment(name);
+    const created = this.getEnvironmentForPrefix(createdPrefix);
     if (created === undefined) {
-      throw new CondaCreatedEnvironmentNotFoundError(name);
+      throw new Error(`conda created ${name}, but Conda Code could not find it after refreshing`);
     }
     if (additionalPackages.length > 0) {
       await this.conda.installPackages(created.environmentPath.fsPath, additionalPackages);
+      this.invalidateRegularDiscovery();
       await this.refresh(projectUri);
     }
     return this.getEnvironmentForPrefix(created.environmentPath.fsPath) ?? created;
@@ -1332,7 +1611,7 @@ export class CondaEnvironmentManager
   ): Promise<PythonEnvironment | undefined> {
     const prefix = path.join(projectUri.fsPath, '.conda');
     if (await pathExists(prefix)) {
-      throw new CondaEnvironmentExistsError(prefix);
+      throw new Error(`A file or directory already exists at ${prefix}`);
     }
     const createdPrefix = await this.conda.createPrefixEnvironment(
       prefix,
@@ -1348,6 +1627,8 @@ export class CondaEnvironmentManager
         `Could not create ${path.join(createdPrefix, '.gitignore')}: ${errorMessage(error)}`,
       );
     }
+    this.additionalRegularPrefixes.add(createdPrefix);
+    this.invalidateRegularDiscovery();
     await this.refresh(projectUri);
     return this.getEnvironmentForPrefix(createdPrefix);
   }
@@ -1361,6 +1642,8 @@ export class CondaEnvironmentManager
       return undefined;
     }
     const prefix = await this.conda.createNamedEnvironment(name, environmentSpecs(options));
+    this.additionalRegularPrefixes.add(prefix);
+    this.invalidateRegularDiscovery();
     await this.refresh(projectUri);
     return this.getEnvironmentForPrefix(prefix);
   }
@@ -1412,12 +1695,21 @@ export class CondaEnvironmentManager
   }
 
   private getNamedEnvironment(name: string): PythonEnvironment | undefined {
-    return this.regularEnvironments.find(
-      (environment) =>
-        this.regularKindsByPrefix.get(
-          normalizeEnvironmentPath(environment.environmentPath.fsPath),
-        ) === 'named' && environment.name.toLowerCase() === name.toLowerCase(),
-    );
+    const primaryRoot =
+      this.condaInfo === undefined || !this.condaInfoPrimaryRootResolved
+        ? undefined
+        : canonicalEnvironmentPath(this.condaInfo.rootPrefix);
+    return this.regularEnvironments.find((environment) => {
+      const metadata = this.regularMetadataByPrefix.get(
+        canonicalEnvironmentPath(environment.environmentPath.fsPath),
+      );
+      return (
+        metadata?.kind === 'named' &&
+        metadata.ownerRoot !== undefined &&
+        canonicalEnvironmentPath(metadata.ownerRoot) === primaryRoot &&
+        environment.name.toLowerCase() === name.toLowerCase()
+      );
+    });
   }
 
   private projectUriForCreation(scope: Uri): Uri | undefined {
@@ -1487,16 +1779,21 @@ export class CondaEnvironmentManager
 
   private async isRegularEnvironmentRemovable(environment: PythonEnvironment): Promise<boolean> {
     const prefix = environment.environmentPath.fsPath;
-    const prefixKey = normalizeEnvironmentPath(prefix);
-    if (this.protectedRegularPrefixes.has(prefixKey)) {
+    const prefixKey = canonicalEnvironmentPath(prefix);
+    const metadata = this.regularMetadataByPrefix.get(prefixKey);
+    if (
+      metadata === undefined ||
+      metadata.condaInstallation ||
+      metadata.ownerExecutable === undefined
+    ) {
       return false;
     }
-    if (!(await isRemovableCondaPrefix(prefix))) {
-      return false;
-    }
-    const kind = this.regularKindsByPrefix.get(prefixKey);
+    const kind = metadata.kind;
     if (kind === 'named') {
-      return true;
+      return (
+        metadata.ownerEnvsDir !== undefined &&
+        (await isRemovableCondaPrefix(prefix, metadata.ownerEnvsDir))
+      );
     }
     if (kind !== 'prefix') {
       return false;
@@ -1520,7 +1817,7 @@ export class CondaEnvironmentManager
     const byPrefix = new Map<string, PythonEnvironment>();
     for (const group of groups) {
       for (const environment of group) {
-        byPrefix.set(normalizeEnvironmentPath(environment.environmentPath.fsPath), environment);
+        byPrefix.set(canonicalEnvironmentPath(environment.environmentPath.fsPath), environment);
       }
     }
     return [...byPrefix.values()].sort((left, right) =>
@@ -1529,10 +1826,14 @@ export class CondaEnvironmentManager
   }
 
   public getEnvironmentForPrefix(prefix: string): PythonEnvironment | undefined {
-    const expected = normalizeEnvironmentPath(prefix);
+    const expected = canonicalEnvironmentPath(prefix);
     return this.allEnvironments().find(
-      (environment) => normalizeEnvironmentPath(environment.environmentPath.fsPath) === expected,
+      (environment) => canonicalEnvironmentPath(environment.environmentPath.fsPath) === expected,
     );
+  }
+
+  public getCondaExecutableForPrefix(prefix: string): string | undefined {
+    return this.regularMetadataByPrefix.get(canonicalEnvironmentPath(prefix))?.ownerExecutable;
   }
 
   public isConflictedPrefix(prefix: string): boolean {
@@ -1548,7 +1849,7 @@ export class CondaEnvironmentManager
       return undefined;
     }
     const prefix = environment.environmentPath.fsPath;
-    const prefixKey = normalizeEnvironmentPath(prefix);
+    const prefixKey = canonicalEnvironmentPath(prefix);
     return {
       projectUri: entry.projectUri,
       manifestUri: entry.manifestUri,
@@ -1565,8 +1866,8 @@ export class CondaEnvironmentManager
       .get(uriKey(route.projectUri))
       ?.environments.find(
         (environment) =>
-          normalizeEnvironmentPath(environment.environmentPath.fsPath) ===
-          normalizeEnvironmentPath(route.prefix),
+          canonicalEnvironmentPath(environment.environmentPath.fsPath) ===
+          canonicalEnvironmentPath(route.prefix),
       );
   }
 

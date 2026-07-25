@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 
 import type { PythonEnvironment } from '@vscode/python-environments';
@@ -13,40 +14,25 @@ export interface CondaWorkspaceRoute {
   readonly pythonPath: string;
 }
 
-export class CompositeWorkspaceEnvironmentError extends Error {
-  public constructor(environmentName: string, features: readonly string[]) {
-    super(
-      `Package changes require a single feature. ${environmentName} uses: ${features.join(', ')}`,
-    );
-    this.name = 'CompositeWorkspaceEnvironmentError';
-  }
-}
-
-export class CondaWorkspaceRouteConflictError extends Error {
-  public constructor(prefix: string) {
-    super(`Multiple conda workspace manifests claim the prefix ${prefix}`);
-    this.name = 'CondaWorkspaceRouteConflictError';
-  }
-}
-
 export function dependencyFeature(
   environmentName: string,
   features: readonly string[],
 ): string | undefined {
   if (features.length > 1) {
-    throw new CompositeWorkspaceEnvironmentError(environmentName, features);
+    throw new Error(
+      `Package changes require a single feature. ${environmentName} uses: ${features.join(', ')}`,
+    );
   }
   return features[0];
 }
 
-export interface CondaWorkspaceRouteResolver {
+export interface CondaWorkspaceRouteManager {
   getRoute(environment: PythonEnvironment): CondaWorkspaceRoute | undefined;
-}
-
-export interface CondaWorkspaceRouteManager extends CondaWorkspaceRouteResolver {
   refresh(scope: Uri): Promise<void>;
+  invalidateRegularDiscovery(): void;
   getEnvironmentForRoute(route: CondaWorkspaceRoute): PythonEnvironment | undefined;
   getEnvironmentForPrefix(prefix: string): PythonEnvironment | undefined;
+  getCondaExecutableForPrefix(prefix: string): string | undefined;
   isConflictedPrefix(prefix: string): boolean;
 }
 
@@ -68,15 +54,39 @@ export function reconcileWorkspaceRouteClaims(
 }
 
 export function normalizeEnvironmentPath(value: string): string {
+  if (/^[A-Za-z]:[\\/]/.test(value)) {
+    return path.win32.normalize(value).toLowerCase();
+  }
   const normalized = path.normalize(path.resolve(value));
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+export function canonicalEnvironmentPath(value: string): string {
+  const normalized = normalizeEnvironmentPath(value);
+  if (process.platform !== 'win32' && /^[a-z]:[\\/]/i.test(normalized)) {
+    return normalized;
+  }
+  const missing: string[] = [];
+  let current = normalized;
+  for (;;) {
+    try {
+      return normalizeEnvironmentPath(path.join(realpathSync.native(current), ...missing));
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return normalized;
+      }
+      missing.unshift(path.basename(current));
+      current = parent;
+    }
+  }
 }
 
 /**
  * Stores conda-workspaces routing data without adding private fields to public
  * PythonEnvironment objects.
  */
-export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver {
+export class CondaWorkspaceRouteRegistry {
   private readonly routesByPrefix = new Map<string, CondaWorkspaceRoute>();
   private readonly conflictedPrefixes = new Set<string>();
 
@@ -85,7 +95,7 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
 
     const routesByPrefix = new Map<string, CondaWorkspaceRoute[]>();
     for (const route of routes) {
-      const prefixKey = normalizeEnvironmentPath(route.prefix);
+      const prefixKey = canonicalEnvironmentPath(route.prefix);
       const entries = routesByPrefix.get(prefixKey) ?? [];
       entries.push(route);
       routesByPrefix.set(prefixKey, entries);
@@ -105,11 +115,11 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
   }
 
   getRoute(environment: PythonEnvironment): CondaWorkspaceRoute | undefined {
-    return this.routesByPrefix.get(normalizeEnvironmentPath(environment.environmentPath.fsPath));
+    return this.routesByPrefix.get(canonicalEnvironmentPath(environment.environmentPath.fsPath));
   }
 
   isConflictedPrefix(prefix: string): boolean {
-    return this.conflictedPrefixes.has(normalizeEnvironmentPath(prefix));
+    return this.conflictedPrefixes.has(canonicalEnvironmentPath(prefix));
   }
 
   getRouteByContext(context: Uri): CondaWorkspaceRoute | undefined {
@@ -117,14 +127,14 @@ export class CondaWorkspaceRouteRegistry implements CondaWorkspaceRouteResolver 
       return undefined;
     }
 
-    const contextKey = normalizeEnvironmentPath(context.fsPath);
+    const contextKey = canonicalEnvironmentPath(context.fsPath);
     const exact = this.routesByPrefix.get(contextKey);
     if (exact) {
       return exact;
     }
 
     for (const route of this.routesByPrefix.values()) {
-      if (normalizeEnvironmentPath(route.pythonPath) === contextKey) {
+      if (canonicalEnvironmentPath(route.pythonPath) === contextKey) {
         return route;
       }
     }

@@ -25,7 +25,8 @@ test('conda shell activation uses the configured root', () => {
 });
 
 test('conda shell activation converts Windows paths for Git Bash', () => {
-  const commands = condaShellCommands(String.raw`C:\Miniconda3`, 'demo');
+  const environmentPrefix = String.raw`D:\envs\demo`;
+  const commands = condaShellCommands(String.raw`C:\Miniconda3`, environmentPrefix);
 
   assert.deepEqual(commands.shellActivation?.get('gitbash'), [
     {
@@ -34,13 +35,20 @@ test('conda shell activation converts Windows paths for Git Bash', () => {
     },
     {
       executable: 'conda',
-      args: ['activate', 'demo'],
+      args: ['activate', environmentPrefix],
     },
   ]);
   assert.deepEqual(commands.shellActivation?.get('cmd'), [
     {
       executable: String.raw`C:\Miniconda3\Scripts\activate.bat`,
-      args: ['demo'],
+      args: [environmentPrefix],
     },
   ]);
+});
+
+test('conda shell activation rejects ambiguous environment names', () => {
+  assert.throws(
+    () => condaShellCommands(String.raw`C:\Miniconda3`, 'demo'),
+    /environmentPrefix must be absolute/,
+  );
 });

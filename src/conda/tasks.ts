@@ -15,6 +15,7 @@ import {
 } from 'vscode';
 
 import { requireValue } from './conda';
+import { isRunnableCondaExecutable } from './executable';
 import { type WorkspaceTask, CondaWorkspacesClient } from './workspaces';
 import { normalizeEnvironmentPath } from './workspaceRouting';
 
@@ -80,6 +81,9 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
     private readonly options: CondaWorkspaceTaskProviderOptions,
   ) {
     this.condaExecutable = requireValue(condaExecutable, 'condaExecutable');
+    if (!isRunnableCondaExecutable(this.condaExecutable)) {
+      throw new TypeError('condaExecutable must invoke conda directly');
+    }
   }
 
   public async provideTasks(token: CancellationToken): Promise<Task[]> {

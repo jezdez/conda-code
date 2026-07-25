@@ -1,17 +1,26 @@
+import path from 'node:path';
+
 import { PythonEnvironments } from '@vscode/python-environments';
 import {
   commands,
   Disposable,
   ExtensionContext,
   extensions,
+  RelativePattern,
   tasks as vscodeTasks,
   Uri,
   window,
   workspace,
 } from 'vscode';
 
-import { CondaClient } from './conda/conda';
+import { CondaClient, type CondaInfo } from './conda/conda';
 import { CondaEnvironmentManager } from './conda/environmentManager';
+import {
+  condaInfoCoherenceFingerprint,
+  isCachedCondaInfoCoherent,
+  isCachedCondaInfoFresh,
+  type CachedCondaInfo,
+} from './conda/infoCache';
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
 import { CondaSelectionState } from './conda/selectionState';
@@ -21,12 +30,15 @@ import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
 const REFRESH_DELAY_MS = 150;
+const CONDA_INFO_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const CONDA_INFO_CACHE_KEY = 'conda-code.condaInfo';
 const PIXI_CODE_EXTENSION_ID = 'renan-r-santos.pixi-code';
 
 interface CondaCodeRuntime extends Disposable {
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
   readonly tasks: CondaWorkspaceTaskProvider;
+  readonly forceCondaInfoEnrichment: () => Promise<void>;
 }
 
 function configuredCondaExecutable(): string {
@@ -58,6 +70,19 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const managerId = `${context.extension.id}:conda`;
   let runtime: CondaCodeRuntime | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let scheduledInvalidateRegular = false;
+  let scheduledForceCondaInfo = false;
+  let condaInfoCacheWrites: Promise<void> = Promise.resolve();
+
+  const updateCondaInfoCache = (value: CachedCondaInfo | undefined): Promise<void> => {
+    const write = condaInfoCacheWrites
+      .catch(() => undefined)
+      .then(() => context.globalState.update(CONDA_INFO_CACHE_KEY, value));
+    condaInfoCacheWrites = write.catch((error: unknown) => {
+      log.debug(`Could not update cached conda information: ${messageFromError(error)}`);
+    });
+    return write;
+  };
 
   const shouldHandleManifest = async (manifest: Uri): Promise<boolean> => {
     if (extensions.getExtension(PIXI_CODE_EXTENSION_ID) === undefined) {
@@ -83,6 +108,58 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const condaExecutable = configuredCondaExecutable();
     const conda = new CondaClient({ condaExecutable });
     const workspaces = new CondaWorkspacesClient({ condaExecutable });
+    const storedCondaInfo = context.globalState.get<CachedCondaInfo>(CONDA_INFO_CACHE_KEY);
+    const currentPath = process.env.PATH ?? process.env.Path ?? process.env.path;
+    let cachedCondaInfo =
+      storedCondaInfo?.executable === condaExecutable && storedCondaInfo.path === currentPath
+        ? storedCondaInfo
+        : undefined;
+    let condaInfoInvalidation: Promise<void> = Promise.resolve();
+    let disposed = false;
+    let configurationWatcher = Disposable.from();
+
+    const updateConfigurationWatcher = (info?: CondaInfo): void => {
+      configurationWatcher.dispose();
+      configurationWatcher = Disposable.from(
+        ...[
+          ...new Set(
+            [...(info?.configFiles ?? []), info?.rcPath, info?.userRcPath, info?.sysRcPath].filter(
+              (source): source is string => source !== undefined && source !== '',
+            ),
+          ),
+        ].map((source) => {
+          const watcher = workspace.createFileSystemWatcher(
+            new RelativePattern(Uri.file(path.dirname(source)), path.basename(source)),
+          );
+          const refresh = (): void => scheduleRefresh(undefined, true, true);
+          return Disposable.from(
+            watcher,
+            watcher.onDidCreate(refresh),
+            watcher.onDidChange(refresh),
+            watcher.onDidDelete(refresh),
+          );
+        }),
+      );
+    };
+
+    const forceCondaInfoEnrichment = async (): Promise<void> => {
+      if (disposed) {
+        return;
+      }
+      const stale =
+        cachedCondaInfo === undefined ? undefined : { ...cachedCondaInfo, updatedAt: 0 };
+      cachedCondaInfo = stale;
+      const expiration =
+        stale === undefined
+          ? Promise.resolve()
+          : updateCondaInfoCache(stale).catch((error: unknown) => {
+              log.debug(`Could not expire cached conda information: ${messageFromError(error)}`);
+            });
+      condaInfoInvalidation = expiration;
+      environments.invalidateCondaInfo();
+      await expiration;
+    };
+
     const environments = new CondaEnvironmentManager(
       api,
       conda,
@@ -92,8 +169,63 @@ export async function activate(context: ExtensionContext): Promise<void> {
       {
         log,
         shouldHandleManifest,
+        ...(cachedCondaInfo === undefined ? {} : { initialCondaInfo: cachedCondaInfo.info }),
+        enrichCondaInfo: async ({ force, signal }) => {
+          if (force) {
+            await condaInfoInvalidation;
+          }
+          if (signal.aborted) {
+            return undefined;
+          }
+          if (
+            !force &&
+            isCachedCondaInfoFresh(cachedCondaInfo, Date.now(), CONDA_INFO_MAX_AGE_MS) &&
+            cachedCondaInfo !== undefined
+          ) {
+            const currentFingerprint = await condaInfoCoherenceFingerprint(
+              condaExecutable,
+              cachedCondaInfo.info,
+            );
+            if (signal.aborted) {
+              return undefined;
+            }
+            if (isCachedCondaInfoCoherent(cachedCondaInfo, currentFingerprint)) {
+              return undefined;
+            }
+          }
+          return conda.getInfo({ signal });
+        },
+        saveCondaInfo: async (info) => {
+          if (info === undefined) {
+            if (disposed) {
+              return;
+            }
+            cachedCondaInfo = undefined;
+            updateConfigurationWatcher();
+            await updateCondaInfoCache(undefined);
+            return;
+          }
+          updateConfigurationWatcher(info);
+          if (disposed) {
+            return;
+          }
+          const coherenceFingerprint = await condaInfoCoherenceFingerprint(condaExecutable, info);
+          if (disposed) {
+            return;
+          }
+          const nextCache: CachedCondaInfo = {
+            executable: condaExecutable,
+            path: currentPath,
+            updatedAt: Date.now(),
+            coherenceFingerprint,
+            info,
+          };
+          cachedCondaInfo = nextCache;
+          await updateCondaInfoCache(nextCache);
+        },
       },
     );
+    updateConfigurationWatcher(cachedCondaInfo?.info);
     const packages = new CondaPackageManager(api, conda, workspaces, environments, {
       log,
     });
@@ -129,7 +261,10 @@ export async function activate(context: ExtensionContext): Promise<void> {
       environments,
       packages,
       tasks: taskProvider,
+      forceCondaInfoEnrichment,
       dispose: () => {
+        disposed = true;
+        configurationWatcher.dispose();
         taskRegistration.dispose();
         environmentRegistration.dispose();
         packageRegistration.dispose();
@@ -140,31 +275,69 @@ export async function activate(context: ExtensionContext): Promise<void> {
     };
   };
 
-  const refresh = async (scope?: Uri): Promise<void> => {
+  const refresh = async (
+    scope?: Uri,
+    invalidateRegular = false,
+    forceCondaInfo = false,
+  ): Promise<void> => {
     const current = runtime;
     if (current === undefined) {
       return;
     }
 
+    if (forceCondaInfo) {
+      await current.forceCondaInfoEnrichment();
+      if (runtime !== current) {
+        return;
+      }
+    }
     current.tasks.refresh();
     try {
+      if (invalidateRegular) {
+        current.environments.invalidateRegularDiscovery();
+      }
       await current.packages.clearCache();
+      if (runtime !== current) {
+        return;
+      }
       await current.environments.refresh(scope);
     } catch (error) {
       log.error(`Refresh failed: ${messageFromError(error)}`);
     } finally {
-      current.tasks.refresh();
+      if (runtime === current) {
+        current.tasks.refresh();
+      }
     }
   };
 
-  const scheduleRefresh = (scope?: Uri): void => {
+  const scheduleRefresh = (
+    scope?: Uri,
+    invalidateRegular = false,
+    forceCondaInfo = false,
+  ): void => {
+    scheduledInvalidateRegular ||= invalidateRegular;
+    scheduledForceCondaInfo ||= forceCondaInfo;
     if (refreshTimer !== undefined) {
       clearTimeout(refreshTimer);
     }
     refreshTimer = setTimeout(() => {
       refreshTimer = undefined;
-      void refresh(scope);
+      const nextInvalidateRegular = scheduledInvalidateRegular;
+      const nextForceCondaInfo = scheduledForceCondaInfo;
+      scheduledInvalidateRegular = false;
+      scheduledForceCondaInfo = false;
+      void refresh(scope, nextInvalidateRegular, nextForceCondaInfo);
     }, REFRESH_DELAY_MS);
+  };
+
+  const refreshImmediately = (): Promise<void> => {
+    if (refreshTimer !== undefined) {
+      clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    }
+    scheduledInvalidateRegular = false;
+    scheduledForceCondaInfo = false;
+    return refresh(undefined, true, true);
   };
 
   runtime = startRuntime();
@@ -177,7 +350,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     watcher.onDidChange(scheduleRefresh),
     watcher.onDidDelete(scheduleRefresh),
     api.onDidChangePythonProjects(() => scheduleRefresh()),
-    commands.registerCommand('conda-code.refresh', () => refresh()),
+    commands.registerCommand('conda-code.refresh', refreshImmediately),
     workspace.onDidChangeConfiguration((event) => {
       if (
         !event.affectsConfiguration('conda-code.condaExecutable') &&

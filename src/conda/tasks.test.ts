@@ -142,6 +142,22 @@ function workspaceClient(
   return { listTasks } as CondaWorkspacesClient;
 }
 
+test('provider rejects a non-conda task executable', () => {
+  const { tasks } = modules();
+
+  for (const executable of ['/custom/solver', 'C:\\Miniforge3\\condabin\\conda.bat']) {
+    assert.throws(
+      () =>
+        new tasks.CondaWorkspaceTaskProvider(
+          workspaceClient(async (file) => ({ file, tasks: [] })),
+          executable,
+          { listWorkspaceManifests: async () => [] },
+        ),
+      /must invoke conda/,
+    );
+  }
+});
+
 test('provider discovers native tasks only for confirmed workspace manifests', async (t) => {
   const { vscode, tasks } = modules();
   const root = path.resolve('/work');

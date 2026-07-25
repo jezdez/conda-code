@@ -24,35 +24,6 @@ export interface CommandRunner {
   ): Promise<CommandResult>;
 }
 
-export class CommandCancelledError extends Error {
-  public constructor(executable: string) {
-    super(`Command was cancelled: ${executable}`);
-    this.name = 'CommandCancelledError';
-  }
-}
-
-export class CommandOutputLimitError extends Error {
-  public constructor(executable: string, stream: 'stdout' | 'stderr', limit: number) {
-    super(`${executable} exceeded the ${stream} limit of ${limit} bytes`);
-    this.name = 'CommandOutputLimitError';
-  }
-}
-
-export class CommandSpawnError extends Error {
-  public constructor(executable: string, cause: unknown) {
-    super(`Unable to start command: ${executable}`, { cause });
-    this.name = 'CommandSpawnError';
-  }
-}
-
-export class CommandTerminatedError extends Error {
-  public constructor(executable: string, signal: NodeJS.Signals | null) {
-    const detail = signal === null ? 'without an exit code' : `by ${signal}`;
-    super(`Command ${executable} terminated ${detail}`);
-    this.name = 'CommandTerminatedError';
-  }
-}
-
 interface ExecFileError extends Error {
   readonly code?: number | string | null;
   readonly signal?: NodeJS.Signals | null;
@@ -84,7 +55,7 @@ export class SpawnCommandRunner implements CommandRunner {
       throw new RangeError('maxOutputBytes must be a positive safe integer');
     }
     if (options.signal?.aborted) {
-      throw new CommandCancelledError(executable);
+      throw new Error(`Command was cancelled: ${executable}`);
     }
 
     try {
@@ -107,11 +78,11 @@ export class SpawnCommandRunner implements CommandRunner {
       const commandError = asExecFileError(error);
 
       if (options.signal?.aborted || commandError?.name === 'AbortError') {
-        throw new CommandCancelledError(executable);
+        throw new Error(`Command was cancelled: ${executable}`);
       }
       if (commandError?.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
         const stream = commandError.message.startsWith('stderr') ? 'stderr' : 'stdout';
-        throw new CommandOutputLimitError(executable, stream, maxOutputBytes);
+        throw new Error(`${executable} exceeded the ${stream} limit of ${maxOutputBytes} bytes`);
       }
       if (typeof commandError?.code === 'number') {
         return {
@@ -121,10 +92,12 @@ export class SpawnCommandRunner implements CommandRunner {
         };
       }
       if (commandError?.code === null || commandError?.signal != null) {
-        throw new CommandTerminatedError(executable, commandError.signal ?? null);
+        const signal = commandError.signal ?? null;
+        const detail = signal === null ? 'without an exit code' : `by ${signal}`;
+        throw new Error(`Command ${executable} terminated ${detail}`);
       }
 
-      throw new CommandSpawnError(executable, error);
+      throw new Error(`Unable to start command: ${executable}`, { cause: error });
     }
   }
 }

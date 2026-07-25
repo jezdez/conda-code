@@ -5,9 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { CondaInfo } from './parsers';
+import { isRunnableCondaExecutable } from './executable';
 import {
+  canonicalCondaPath,
   condaGlobalEnvironmentRoots,
   condaPrefixCandidates,
+  findCondaExecutable,
   inspectCondaPrefix,
   isCondaGlobalPrefix,
   isManagedProjectPrefix,
@@ -43,7 +46,6 @@ test('inspectCondaPrefix reads Python metadata without running the environment',
     JSON.stringify({ name: 'python', version: '3.13.5', subdir: 'linux-64' }),
   );
   await writeFile(path.join(prefix, 'bin', 'python'), '');
-
   assert.deepEqual(await inspectCondaPrefix(prefix, info(root, envsDir)), {
     prefix,
     name: 'demo',
@@ -52,6 +54,8 @@ test('inspectCondaPrefix reads Python metadata without running the environment',
     pythonVersion: '3.13.5',
     pythonExists: true,
     condaInstallation: false,
+    ownerRoot: root,
+    ownerEnvsDir: envsDir,
   });
 });
 
@@ -65,7 +69,6 @@ test('inspectCondaPrefix honors the Python record platform', async (t) => {
     JSON.stringify({ name: 'python', version: '3.13.5', subdir: 'win-64' }),
   );
   await writeFile(path.join(prefix, 'python.exe'), '');
-
   const metadata = await inspectCondaPrefix(prefix, info(root, path.join(root, 'envs')));
   assert.equal(metadata?.pythonPath, path.join(prefix, 'python.exe'));
   assert.equal(metadata?.pythonExists, true);
@@ -77,7 +80,6 @@ test('inspectCondaPrefix retains environments without Python', async (t) => {
   const envsDir = path.join(root, 'named');
   const prefix = path.join(root, 'project', '.conda');
   await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
-
   assert.deepEqual(await inspectCondaPrefix(prefix, info(root, envsDir)), {
     prefix,
     name: '.conda',
@@ -89,15 +91,197 @@ test('inspectCondaPrefix retains environments without Python', async (t) => {
   });
 });
 
+test('inspectCondaPrefix groups an ownerless Python environment as Named', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-ownerless-prefix-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prefix = path.join(root, 'registered');
+  await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+  await mkdir(path.join(prefix, 'bin'));
+  await writeFile(
+    path.join(prefix, 'conda-meta', 'python-3.13.5-h123_0.json'),
+    JSON.stringify({ name: 'python', version: '3.13.5', subdir: 'linux-64' }),
+  );
+  await writeFile(path.join(prefix, 'bin', 'python'), '');
+
+  const metadata = await inspectCondaPrefix(
+    prefix,
+    info(path.join(root, 'base'), path.join(root, 'base', 'envs')),
+  );
+  assert.equal(metadata?.kind, 'named');
+  assert.equal(metadata?.ownerRoot, undefined);
+  assert.equal(metadata?.ownerExecutable, undefined);
+});
+
+test('inspectCondaPrefix does not treat conda inside a named environment as an owner', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-nested-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = path.join(root, 'base');
+  const runner = path.join(base, 'envs', 'runner');
+  const prefix = path.join(root, 'external');
+  await Promise.all([
+    mkdir(path.join(base, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(base, 'envs'), { recursive: true }),
+    mkdir(path.join(base, 'bin'), { recursive: true }),
+    mkdir(path.join(runner, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(runner, 'bin'), { recursive: true }),
+    mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(prefix, 'bin'), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(path.join(base, 'bin', 'conda'), ''),
+    writeFile(path.join(runner, 'bin', 'conda'), ''),
+    writeFile(
+      path.join(prefix, 'conda-meta', 'python-3.13.5-h123_0.json'),
+      JSON.stringify({ name: 'python', version: '3.13.5', subdir: 'linux-64' }),
+    ),
+    writeFile(path.join(prefix, 'bin', 'python'), ''),
+    writeFile(
+      path.join(prefix, 'conda-meta', 'history'),
+      `# cmd: ${path.join(
+        runner,
+        'lib',
+        'python3.13',
+        'site-packages',
+        'conda',
+        '__main__.py',
+      )} create --prefix ${prefix} python\n`,
+    ),
+  ]);
+
+  const metadata = await inspectCondaPrefix(prefix, info(base, path.join(base, 'envs')));
+  assert.equal(metadata?.kind, 'named');
+  assert.equal(metadata?.ownerRoot, undefined);
+  assert.equal(metadata?.ownerExecutable, undefined);
+});
+
+test('inspectCondaPrefix resolves a conda shim recorded in history', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-history-shim-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = path.join(root, 'base');
+  const executable = path.join(base, 'bin', 'conda');
+  const shimDirectory = path.join(root, 'shims');
+  const shim = path.join(shimDirectory, 'conda');
+  const prefix = path.join(root, 'external');
+  await Promise.all([
+    mkdir(path.join(base, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(base, 'envs'), { recursive: true }),
+    mkdir(path.dirname(executable), { recursive: true }),
+    mkdir(shimDirectory),
+    mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
+  ]);
+  await writeFile(executable, '');
+  await symlink(executable, shim);
+  await writeFile(
+    path.join(prefix, 'conda-meta', 'history'),
+    `# cmd: ${shim} create --prefix ${prefix} python\n`,
+  );
+
+  const metadata = await inspectCondaPrefix(prefix, info(base, path.join(base, 'envs')));
+  assert.equal(metadata?.kind, 'prefix');
+  assert.equal(metadata?.ownerRoot, await canonicalCondaPath(base));
+  assert.equal(metadata?.ownerExecutable, await canonicalCondaPath(executable));
+});
+
+test('inspectCondaPrefix never uses a non-conda command recorded in history', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-history-command-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = path.join(root, 'base');
+  const bin = path.join(base, 'bin');
+  const commands = ['solver', 'custom-tool'];
+  await Promise.all([
+    mkdir(path.join(base, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(base, 'pkgs'), { recursive: true }),
+    mkdir(path.join(base, 'envs'), { recursive: true }),
+    mkdir(bin, { recursive: true }),
+  ]);
+
+  for (const command of commands) {
+    const executable = path.join(bin, command);
+    const prefix = path.join(root, command);
+    await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+    await writeFile(executable, '');
+    await writeFile(
+      path.join(prefix, 'conda-meta', 'history'),
+      `# cmd: ${executable} create --prefix ${prefix} python\n`,
+    );
+
+    const metadata = await inspectCondaPrefix(
+      prefix,
+      info(path.join(root, 'primary'), path.join(root, 'primary', 'envs')),
+    );
+    assert.equal(metadata?.ownerRoot, await canonicalCondaPath(base));
+    assert.equal(metadata?.ownerExecutable, undefined);
+  }
+});
+
 test('inspectCondaPrefix marks another conda installation root', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-installation-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(path.join(root, 'conda-meta'), { recursive: true });
   await mkdir(path.join(root, 'condabin'));
-
   const metadata = await inspectCondaPrefix(root, info('/configured/conda', '/configured/envs'));
-  assert.equal(metadata?.kind, 'prefix');
+  assert.equal(metadata?.kind, 'base');
   assert.equal(metadata?.condaInstallation, true);
+  assert.equal(metadata?.ownerRoot, root);
+});
+
+test('Windows owner discovery prefers native executables and rejects batch shims', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-windows-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const nativeExecutable = path.join(root, 'Scripts', 'conda.exe');
+  const batchShim = path.join(root, 'condabin', 'conda.bat');
+  await Promise.all([
+    mkdir(path.dirname(nativeExecutable), { recursive: true }),
+    mkdir(path.dirname(batchShim), { recursive: true }),
+  ]);
+  await Promise.all([writeFile(nativeExecutable, ''), writeFile(batchShim, '')]);
+
+  assert.equal(
+    await findCondaExecutable(root, 'win32'),
+    await canonicalCondaPath(nativeExecutable),
+  );
+  assert.equal(isRunnableCondaExecutable(batchShim, 'win32'), false);
+
+  await rm(nativeExecutable);
+  assert.equal(await findCondaExecutable(root, 'win32'), undefined);
+});
+
+test('inspectCondaPrefix keeps batch-only Windows owners read-only', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-windows-batch-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const envsDir = path.join(root, 'envs');
+  const prefix = path.join(envsDir, 'demo');
+  const batchShim = path.join(root, 'condabin', 'conda.bat');
+  await Promise.all([
+    mkdir(path.join(root, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
+    mkdir(path.dirname(batchShim), { recursive: true }),
+  ]);
+  await writeFile(batchShim, '');
+
+  const metadata = await inspectCondaPrefix(prefix, info(root, envsDir), {
+    ownerRoot: root,
+    ownerExecutable: batchShim,
+    ownerEnvsDirs: [envsDir],
+  });
+
+  assert.equal(metadata?.kind, 'named');
+  assert.equal(metadata?.ownerRoot, await canonicalCondaPath(root));
+  assert.equal(metadata?.ownerExecutable, undefined);
+});
+
+test('inspectCondaPrefix does not trust an unresolved primary root', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-unresolved-primary-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'conda-meta'));
+
+  const metadata = await inspectCondaPrefix(root, info(root, path.join(root, 'envs')), {
+    primaryRootTrusted: false,
+  });
+
+  assert.equal(metadata?.kind, 'prefix');
+  assert.equal(metadata?.condaInstallation, false);
+  assert.equal(metadata?.ownerRoot, undefined);
 });
 
 test('prefix path helpers handle Windows and containment boundaries', () => {
@@ -107,6 +291,9 @@ test('prefix path helpers handle Windows and containment boundaries', () => {
   );
   assert.equal(isPathWithin('/home/user/.cg/envs', '/home/user/.cg/envs/ruff'), true);
   assert.equal(isPathWithin('/home/user/.cg/envs', '/home/user/.cg/envs-other/ruff'), false);
+  assert.equal(isPathWithin(String.raw`C:\envs`, String.raw`C:\envs\demo`), true);
+  assert.equal(isPathWithin(String.raw`C:\envs`, String.raw`C:\envs-other\demo`), false);
+  assert.equal(isPathWithin(String.raw`C:\envs`, String.raw`D:\envs\demo`), false);
   assert.equal(isManagedProjectPrefix('/work/demo/.conda', '/work/demo'), true);
   assert.equal(isManagedProjectPrefix('/work/demo', '/work/demo'), false);
   assert.equal(isManagedProjectPrefix('/work/demo/.conda/envs/default', '/work/demo'), false);
@@ -136,6 +323,85 @@ test('isRemovableManagedProjectPrefix rejects a symlinked .conda prefix', async 
   await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
   assert.equal(await isRemovableCondaPrefix(prefix), true);
   assert.equal(await isRemovableManagedProjectPrefix(prefix, project), true);
+});
+
+test('isRemovableCondaPrefix rejects a symlink below its trusted owner root', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-owner-link-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const owner = path.join(root, 'owner');
+  const target = path.join(root, 'target');
+  const linkedDirectory = path.join(owner, 'envs');
+  const prefix = path.join(linkedDirectory, 'demo');
+  await mkdir(path.join(target, 'demo', 'conda-meta'), { recursive: true });
+  await mkdir(owner);
+  await symlink(target, linkedDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+
+  assert.equal(await isRemovableCondaPrefix(prefix), true);
+  assert.equal(await isRemovableCondaPrefix(prefix, owner), false);
+  assert.equal(
+    await canonicalCondaPath(prefix),
+    await canonicalCondaPath(path.join(target, 'demo')),
+  );
+});
+
+test('inspectCondaPrefix preserves the owning environment directory for safe removal', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-external-envs-dir-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const base = path.join(root, 'base');
+  const externalEnvsDir = path.join(root, 'external-envs');
+  const prefix = path.join(externalEnvsDir, 'demo');
+  await Promise.all([
+    mkdir(path.join(base, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(base, 'envs'), { recursive: true }),
+    mkdir(path.join(base, 'bin'), { recursive: true }),
+    mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
+  ]);
+  await writeFile(path.join(base, 'bin', 'conda'), '');
+
+  const metadata = await inspectCondaPrefix(prefix, info(base, externalEnvsDir), {
+    ownerRoot: base,
+    ownerEnvsDirs: [externalEnvsDir],
+  });
+
+  assert.equal(metadata?.kind, 'named');
+  assert.equal(metadata?.ownerEnvsDir, externalEnvsDir);
+  assert.equal(await isRemovableCondaPrefix(prefix, base), false);
+  assert.equal(await isRemovableCondaPrefix(prefix, metadata?.ownerEnvsDir), true);
+});
+
+test('inspectCondaPrefix assigns a symlink alias to its canonical layout owner', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-canonical-owner-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configured = path.join(root, 'configured');
+  const actual = path.join(root, 'actual');
+  const configuredExecutable = path.join(configured, 'bin', 'conda');
+  const actualExecutable = path.join(actual, 'bin', 'conda');
+  const actualPrefix = path.join(actual, 'envs', 'demo');
+  const alias = path.join(configured, 'envs', 'demo');
+  await Promise.all([
+    mkdir(path.join(configured, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(configured, 'envs'), { recursive: true }),
+    mkdir(path.dirname(configuredExecutable), { recursive: true }),
+    mkdir(path.join(actual, 'conda-meta'), { recursive: true }),
+    mkdir(path.join(actualPrefix, 'conda-meta'), { recursive: true }),
+    mkdir(path.dirname(actualExecutable), { recursive: true }),
+  ]);
+  await Promise.all([writeFile(configuredExecutable, ''), writeFile(actualExecutable, '')]);
+  await symlink(actualPrefix, alias, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const metadata = await inspectCondaPrefix(
+    alias,
+    info(configured, path.join(configured, 'envs')),
+    {
+      ownerRoot: configured,
+      ownerExecutable: configuredExecutable,
+      ownerEnvsDirs: [path.join(configured, 'envs')],
+    },
+  );
+
+  assert.equal(metadata?.ownerRoot, await canonicalCondaPath(actual));
+  assert.equal(metadata?.ownerExecutable, await canonicalCondaPath(actualExecutable));
+  assert.equal(metadata?.ownerEnvsDir, await canonicalCondaPath(path.join(actual, 'envs')));
 });
 
 test('conda-global uses its configured root', () => {
@@ -173,4 +439,17 @@ test('Pixi environment prefixes are recognized across path separators', () => {
   assert.equal(isPixiEnvironmentPrefix('/work/project/.pixi/envs/default'), true);
   assert.equal(isPixiEnvironmentPrefix(String.raw`C:\work\project\.pixi\envs\test`), true);
   assert.equal(isPixiEnvironmentPrefix('/work/project/.pixi/cache'), false);
+});
+
+test('Pixi environment prefixes are recognized through symlink aliases', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-pixi-link-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const prefix = path.join(root, 'project', '.pixi', 'envs', 'default');
+  const alias = path.join(root, 'outside');
+  await mkdir(prefix, { recursive: true });
+  await symlink(prefix, alias, process.platform === 'win32' ? 'junction' : 'dir');
+
+  assert.equal(isPixiEnvironmentPrefix(alias), true);
+  assert.equal(isPathWithin(path.join(root, 'project'), alias), true);
+  assert.equal(isPathWithin(path.join(root, 'project'), path.join(alias, 'missing')), true);
 });

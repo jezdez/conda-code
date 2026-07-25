@@ -13,7 +13,6 @@ import { diffPackages } from './changes';
 import { CondaClient, CondaPackageRecord } from './conda';
 import {
   CondaWorkspaceRoute,
-  CondaWorkspaceRouteConflictError,
   CondaWorkspaceRouteManager,
   dependencyFeature,
 } from './workspaceRouting';
@@ -27,35 +26,6 @@ interface GetPackagesOptions {
   readonly skipCache?: boolean;
 }
 
-interface CachedPackages {
-  readonly environment: PythonEnvironment;
-  readonly packages: readonly Package[];
-}
-
-export class WorkspacePackageRemovalError extends Error {
-  public constructor(message: string) {
-    super(message);
-    this.name = 'WorkspacePackageRemovalError';
-  }
-}
-
-export class WorkspacePackageUpgradeError extends Error {
-  public constructor(manifest: string) {
-    super(
-      `Conda workspace package upgrades are not supported. Edit ${manifest} directly, ` +
-        'then refresh Conda Code.',
-    );
-    this.name = 'WorkspacePackageUpgradeError';
-  }
-}
-
-export class CondaEnvironmentOwnershipError extends Error {
-  public constructor(prefix: string) {
-    super(`Conda Code does not own the environment prefix ${prefix}`);
-    this.name = 'CondaEnvironmentOwnershipError';
-  }
-}
-
 function normalizedPackageName(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -67,7 +37,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public readonly iconPath = new ThemeIcon('package');
   public readonly log?: LogOutputChannel;
 
-  private readonly packagesByEnvironment = new Map<string, CachedPackages>();
+  private readonly packagesByEnvironment = new Map<string, readonly Package[]>();
   private readonly onDidChangePackagesEmitter = new EventEmitter<DidChangePackagesEventArgs>();
 
   public readonly onDidChangePackages = this.onDidChangePackagesEmitter.event;
@@ -95,21 +65,28 @@ export class CondaPackageManager implements PackageManager, Disposable {
     const current = this.requireOwnedEnvironment(environment);
     const route = this.routes.getRoute(current);
     if (route === undefined) {
+      const conda = this.condaForPrefix(current.environmentPath.fsPath, true);
       if (uninstall.length > 0) {
-        await this.conda.removePackages(current.environmentPath.fsPath, uninstall);
+        await conda.removePackages(current.environmentPath.fsPath, uninstall);
       }
       if (install.length > 0) {
-        await this.conda.installPackages(current.environmentPath.fsPath, install, {
+        await conda.installPackages(current.environmentPath.fsPath, install, {
           upgrade: options.upgrade,
         });
       }
     } else {
       if (options.upgrade === true && install.length > 0) {
-        throw new WorkspacePackageUpgradeError(route.manifestUri.fsPath);
+        throw new Error(
+          `Conda workspace package upgrades are not supported. ` +
+            `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
+        );
       }
       await this.manageWorkspace(route, uninstall, install);
     }
 
+    if (route === undefined) {
+      this.routes.invalidateRegularDiscovery();
+    }
     await this.routes.refresh(route?.projectUri ?? current.environmentPath);
     const refreshedEnvironment =
       route === undefined
@@ -149,7 +126,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     const key = currentEnvironment.envId.id;
     const cached = this.packagesByEnvironment.get(key);
     if (cached !== undefined) {
-      return [...cached.packages];
+      return [...cached];
     }
 
     return this.loadAndCachePackages(currentEnvironment);
@@ -167,11 +144,11 @@ export class CondaPackageManager implements PackageManager, Disposable {
   private requireOwnedEnvironment(environment: PythonEnvironment): PythonEnvironment {
     const prefix = environment.environmentPath.fsPath;
     if (this.routes.isConflictedPrefix(prefix)) {
-      throw new CondaWorkspaceRouteConflictError(prefix);
+      throw new Error(`Multiple conda workspace manifests claim the prefix ${prefix}`);
     }
     const current = this.currentEnvironment(environment);
     if (current === undefined) {
-      throw new CondaEnvironmentOwnershipError(prefix);
+      throw new Error(`Conda Code does not own the environment prefix ${prefix}`);
     }
     return current;
   }
@@ -186,7 +163,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   }
 
   private async refreshPackages(environment: PythonEnvironment): Promise<Package[]> {
-    const previous = this.packagesByEnvironment.get(environment.envId.id)?.packages ?? [];
+    const previous = this.packagesByEnvironment.get(environment.envId.id) ?? [];
     const current = await this.loadAndCachePackages(environment);
 
     const changes = diffPackages(previous, current);
@@ -202,12 +179,9 @@ export class CondaPackageManager implements PackageManager, Disposable {
 
   private async loadAndCachePackages(environment: PythonEnvironment): Promise<Package[]> {
     const key = environment.envId.id;
-    const previous = this.packagesByEnvironment.get(key)?.packages ?? [];
+    const previous = this.packagesByEnvironment.get(key) ?? [];
     const current = await this.loadPackages(environment, previous);
-    this.packagesByEnvironment.set(key, {
-      environment,
-      packages: current,
-    });
+    this.packagesByEnvironment.set(key, current);
     return [...current];
   }
 
@@ -217,7 +191,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     install: readonly string[],
   ): Promise<void> {
     if (uninstall.length > 0) {
-      throw new WorkspacePackageRemovalError(
+      throw new Error(
         `Conda workspace package removal is not supported. Edit ${route.manifestUri.fsPath} ` +
           'directly, then refresh Conda Code.',
       );
@@ -238,7 +212,9 @@ export class CondaPackageManager implements PackageManager, Disposable {
     const packageInfo =
       route === undefined
         ? this.condaPackageInfo(
-            await this.conda.listPrefixPackages(environment.environmentPath.fsPath),
+            await this.condaForPrefix(environment.environmentPath.fsPath, false).listPrefixPackages(
+              environment.environmentPath.fsPath,
+            ),
           )
         : this.workspacePackageInfo(
             await this.workspaces.listPackages(route.manifestUri.fsPath, route.environmentName),
@@ -257,6 +233,17 @@ export class CondaPackageManager implements PackageManager, Disposable {
       }
       return this.api.createPackageItem(info, environment, this);
     });
+  }
+
+  private condaForPrefix(prefix: string, requireOwner: boolean): CondaClient {
+    const executable = this.routes.getCondaExecutableForPrefix(prefix);
+    if (executable === undefined) {
+      if (requireOwner) {
+        throw new Error(`Conda Code does not know which conda installation owns ${prefix}`);
+      }
+      return this.conda;
+    }
+    return this.conda.forExecutable(executable);
   }
 
   private condaPackageInfo(condaPackages: readonly CondaPackageRecord[]): PackageInfo[] {
