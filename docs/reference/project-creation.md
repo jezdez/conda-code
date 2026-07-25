@@ -13,7 +13,7 @@ Conda Code checks exact filenames at the registered Python project root.
 | `conda-lock.yaml`  | [conda-lockfiles](https://github.com/conda/conda-lockfiles) | Exact named environment   | Refused                      |
 
 Conda Code lists the conda-lock filenames whenever they are present. Creation
-requires conda-lockfiles 0.2 or newer for the configured conda executable.
+requires conda-lockfiles 0.2 or newer for the configured `conda` executable.
 
 Conda Code does not automatically treat `requirements.txt`, `spec.txt`, or
 `pixi.lock` as project creation inputs. `requirements.txt` normally describes

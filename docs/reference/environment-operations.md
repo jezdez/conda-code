@@ -2,23 +2,63 @@
 
 ## Regular environments
 
-| Environment type          | Discover                      | Create             | Select | Delete |
-| ------------------------- | ----------------------------- | ------------------ | ------ | ------ |
-| Base environment          | Yes                           | No                 | Yes    | No     |
-| Named environment         | Yes                           | Yes                | Yes    | Yes    |
-| Project `.conda` prefix   | Yes                           | Interactive only   | Yes    | Yes    |
-| Other conda prefix        | Yes when reported or resolved | Outside Conda Code | Yes    | No     |
-| Conda installation prefix | Yes when reported             | Outside Conda Code | Yes    | No     |
-| conda-global tool prefix  | No                            | No                 | No     | No     |
-| `.pixi/envs` prefix       | No                            | No                 | No     | No     |
+| Environment type          | Discover                        | Create             | Select | Delete |
+| ------------------------- | ------------------------------- | ------------------ | ------ | ------ |
+| Base environment          | Yes                             | No                 | Yes    | No     |
+| Named environment         | Yes                             | Yes                | Yes    | Yes    |
+| Project `.conda` prefix   | Yes                             | Interactive only   | Yes    | Yes    |
+| Other conda prefix        | Yes when discovered or resolved | Outside Conda Code | Yes    | No     |
+| conda installation prefix | Yes when discovered             | Outside Conda Code | Yes    | No     |
+| conda-global tool prefix  | No                              | No                 | No     | No     |
+| `.pixi/envs` prefix       | No                              | No                 | No     | No     |
 
-Regular discovery starts with the root prefix and environment prefixes from
-`conda info --json`. Conda Code can also resolve an unregistered prefix from
-the prefix path or its Python executable.
+Regular discovery combines these sources:
+
+- the configured executable, its validated installation root, and default
+  environment directories
+- `~/.conda/environments.txt`
+- conda installation roots found through `conda` executables located inside
+  them, relevant `CONDA` environment variables, and standard installation
+  locations
+- prefixes resolved explicitly from a prefix path or Python executable
+- cached `conda info --json` details when available
+
+For each known installation, Conda Code inspects the installation root and the
+direct children of its environment directories. It does not recursively scan
+arbitrary directories.
+
+Ordinary regular discovery is process-free. Unchanged results are reused when
+the discovery filesystem fingerprint is unchanged, and overlapping refresh
+requests are coalesced. Missing or stale `conda info --json` details are loaded
+as optional background enrichment. Conda Code watches the exact configuration
+files reported by conda. A live change schedules one forced background
+enrichment. A lightweight fingerprint of those files, relevant conda
+environment inputs, and the configured executable detects changes made while
+VS Code was closed. The 24-hour cache age remains a fallback for sources that
+conda had not reported.
+
+Conda Code determines a prefix's owning installation from its installation
+layout or `conda-meta/history`. It then applies the same Base, Named, and Prefix
+classification used by the Python Environments conda provider for ordinary
+conda environments. The owning installation root is Base, environments named
+by conda or found directly below an owner's environment directory are Named,
+and other owned environments are Prefix. To preserve the Python Environments
+view behavior, an ownerless discovered environment with Python also appears
+under Named using its directory name.
+
+An owning `conda` executable provides conda hook activation from the owner root
+and handles regular package changes and deletion. A prefix without an owning
+`conda` executable remains visible and selectable, but Conda Code refuses to
+mutate it. The primary configured conda remains the route for creation,
+workspaces, tasks, and plugin features.
+
+Workspace environments do not participate in ordinary environment
+classification. The conda-global tool prefixes and Pixi-owned prefixes remain
+excluded from regular discovery.
 
 Project environment files are creation inputs, not discovery inputs. See
 [](project-creation.md). After creation, the regular named environment is
-visible when conda reports its prefix.
+visible after discovery finds its prefix.
 
 Environments without Python remain visible with a warning. Conda Code reads
 Python version data from `conda-meta` rather than starting the interpreter.

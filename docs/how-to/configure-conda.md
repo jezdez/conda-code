@@ -1,4 +1,4 @@
-# Configure the conda executable
+# Configure the `conda` executable
 
 Set `conda-code.condaExecutable` when Conda Code should use a specific conda
 installation:

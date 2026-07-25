@@ -6,8 +6,8 @@ Run **Python Envs: Create Environment**, choose **Conda Code**, then choose one
 of the regular environment types:
 
 Named environment
-: Creates an environment by name in one of conda's configured environment
-directories.
+: Creates an environment by name in one of the environment directories
+configured for the primary conda.
 
 Project prefix
 : Creates an environment at `.conda` below the registered project. This
@@ -39,9 +39,10 @@ Conda Code removes:
 - named conda environments
 - project prefixes located exactly at `<project>/.conda`
 
-Conda Code refuses to remove the base environment, another conda installation,
-a prefix that it cannot identify as named or `<project>/.conda`, or a prefix
-without valid `conda-meta` data.
+Conda Code routes removal through the prefix's owning conda installation. It
+refuses to remove the base environment, another conda installation, a prefix
+that it cannot identify as named or `<project>/.conda`, a prefix without a usable
+owner executable, or a prefix without valid `conda-meta` data.
 
 ## Manage packages
 
@@ -53,6 +54,9 @@ For regular environments, Conda Code can:
 - update requested packages
 - remove packages
 - list conda package records
+
+Package changes use the prefix's owner executable. Conda Code keeps a prefix
+without a usable owner executable visible but refuses to change it.
 
 Raw pip-only distributions are omitted. Packages installed by conda-pypi have
 conda records and remain visible.

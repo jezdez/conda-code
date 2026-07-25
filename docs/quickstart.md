@@ -40,8 +40,10 @@ Add these settings to your VS Code user or workspace settings:
 }
 ```
 
-Open the Python Environments view. The **Conda Code** manager lists the base
-environment and the environments reported by `conda info --json`.
+Open the Python Environments view. The **Conda Code** manager lists ordinary
+environments from the primary conda and other discovered local conda
+installations. Base, Named, and Prefix grouping matches the built-in conda
+provider for ordinary environments.
 
 :::{note}
 Python Environments also registers its built-in conda manager. Both conda

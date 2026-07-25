@@ -59,4 +59,5 @@ Conda Code watches:
 
 Changes schedule a refresh. The manual
 **Conda Code: Refresh Environments** command clears package data and refreshes
-environment and task sources immediately.
+environment and task sources. It also starts forced conda-information
+enrichment in the background.

@@ -29,9 +29,9 @@ artifacts and does not require a solve.
 
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) adds
 support for `conda-lock.yml` and `conda-lock.yaml` through conda's environment
-specifier plugin API. Conda Code delegates parsing and installation to conda.
+specifier plugin API. Conda Code delegates parsing and installation to `conda`.
 
-Conda-lockfiles can also register `pixi.lock` as an input format. Conda Code
+The conda-lockfiles plugin can also register `pixi.lock` as an input format. Conda Code
 does not discover that filename because Pixi projects already have a project
 provider path through Pixi Code or conda-workspaces.
 

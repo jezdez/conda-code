@@ -62,4 +62,4 @@ The package is installed in the prefix. `environment.yml` is unchanged.
 Conda Code ran `conda create --name conda-code-demo --file environment.yml`
 from the project root. The file was a one-time creation input. The resulting
 environment is an ordinary named conda environment, so later package operations
-use regular conda commands.
+use regular `conda` commands.

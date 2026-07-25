@@ -52,7 +52,7 @@ conda task --file /path/to/manifest run -- TASK
 ```
 
 Conda Code resolves the definition's `file` value against its VS Code workspace
-folder and passes the absolute path to conda. The `--` separator keeps task
+folder and passes the absolute path to `conda`. The `--` separator keeps task
 names from being interpreted as command options.
 
 VS Code supplies the task UI and terminal. conda-workspaces handles dependency

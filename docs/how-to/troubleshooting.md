@@ -20,6 +20,28 @@ Conda Code retains environments without Python, but marks them with a warning.
 A prefix without a `conda-meta` directory is not a conda environment and is
 ignored.
 
+The configured executable selects the primary conda. Additional
+conda installations can be discovered through `~/.conda/environments.txt`,
+`conda` executables located inside their roots, relevant conda environment
+variables, and standard installation locations.
+
+Initial regular discovery does not wait for `conda info --json`. Conda Code
+loads missing or stale conda details in the background and caches the result.
+It watches the exact configuration files reported by conda while VS Code is
+open and fingerprints those files, relevant conda environment inputs, and the
+configured executable across restarts. Run **Conda Code: Refresh Environments**
+to force that request after changing a new or unreported configuration source.
+The 24-hour cache age is the final fallback where no source or file event was
+available.
+
+## An environment cannot be changed
+
+Conda Code keeps a valid prefix visible when it cannot determine an owning `conda`
+executable. Selection, package listing, and inspection remain available. Direct
+execution remains available when the prefix contains Python. Shell activation,
+package changes, and deletion require an owning `conda` executable. Make `conda`
+available in the owning installation, then refresh.
+
 ## A workspace does not appear
 
 Check all of the following:

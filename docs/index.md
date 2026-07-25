@@ -10,7 +10,7 @@ environments through one manager. It also publishes declared workspace tasks
 through the native VS Code task interface.
 
 The provider ID is `jezdez.conda-code:conda`. Conda Code runs the configured
-conda executable directly and does not delegate to Python Environments'
+`conda` executable directly and does not delegate to Python Environments'
 built-in conda manager.
 
 ::::{grid} 1 1 2 2
@@ -135,7 +135,7 @@ Create a workspace environment <tutorials/workspace-environment>
 :caption: How-to guides
 
 Select the Conda Code provider <how-to/select-provider>
-Configure the conda executable <how-to/configure-conda>
+Configure the `conda` executable <how-to/configure-conda>
 Create from project files <how-to/create-from-files>
 Manage environments and packages <how-to/manage-environments>
 Use conda workspaces <how-to/use-workspaces>

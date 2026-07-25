@@ -20,7 +20,7 @@ Use Conda Code globally or for one registered Python project.
 :link: configure-conda
 :link-type: doc
 
-Choose the exact conda executable that Conda Code runs.
+Choose the exact `conda` executable that Conda Code runs.
 :::
 
 :::{grid-item-card} Create from project files

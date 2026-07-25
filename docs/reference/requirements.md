@@ -12,8 +12,8 @@
 
 Regular environment discovery does not require a registered project. Project
 selection and workspace discovery require local files. Conda Code does not
-support virtual or untrusted workspaces because it executes the configured conda
-executable.
+support virtual or untrusted workspaces because it executes local `conda`
+commands.
 
 ## Conda workspaces
 

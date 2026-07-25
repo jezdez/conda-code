@@ -16,8 +16,9 @@ the folder appears as a Python project in the Python Environments view.
 4. Enter `conda-code-demo`.
 5. Choose a Python version or accept the default package selection.
 
-Conda Code creates the environment in one of conda's configured environment
-directories. It contains Python and appears below **Conda Code**.
+Conda Code creates the environment in one of the environment directories
+configured for the primary conda. It contains Python and appears below
+**Conda Code**.
 
 Inspect it from a terminal:
 
@@ -31,7 +32,7 @@ conda list --name conda-code-demo
 2. Open **Manage Packages**.
 3. Install `pytest`.
 
-Conda Code applies the change with the configured conda executable.
+Conda Code applies the change with the environment's owner executable.
 
 ```console
 conda list --name conda-code-demo pytest
@@ -52,5 +53,5 @@ The printed prefix matches the `conda-code-demo` environment shown by
 ## What happened
 
 The environment is an ordinary named conda prefix with `conda-meta` records.
-Core conda commands see the same environment model. Conda Code adds the VS Code
+Core `conda` commands see the same environment model. Conda Code adds the VS Code
 integration, not a new regular environment format.

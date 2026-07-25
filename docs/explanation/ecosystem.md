@@ -35,16 +35,16 @@ workspace's conda dependencies.
 ## conda-lockfiles
 
 [conda-lockfiles](https://github.com/conda/conda-lockfiles) registers
-additional exact environment formats with conda. When it is installed, Conda
+additional exact environment formats with `conda`. When it is installed, Conda
 Code can pass project-root `conda-lock.yml` and `conda-lock.yaml` files to
 `conda create`.
 
-Conda-lockfiles also supports `pixi.lock`. Conda Code does not offer that file
+The conda-lockfiles plugin also supports `pixi.lock`. Conda Code does not offer that file
 as a standalone environment input. Pixi projects stay with Pixi Code when it is
 installed, or with conda-workspaces otherwise.
 
 Conda Code does not parse or synchronize those files. It delegates the format
-to conda and manages the result as a regular named environment.
+to `conda` and manages the result as a regular named environment.
 
 ## conda-global
 
