@@ -177,7 +177,7 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
         ],
       };
     }),
-    '/custom/conda',
+    '_conda',
     {
       listWorkspaceManifests: async () => [condaManifest],
       selectedWorkspaceEnvironment: async () => 'dev',
@@ -198,10 +198,7 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
   assert.equal(task?.scope, folder);
   assert.equal(task?.source, 'conda-workspaces');
   assert.equal(task?.detail, 'Build documentation (project/conda.toml)');
-  assert.equal(
-    task?.execution && 'process' in task.execution && task.execution.process,
-    '/custom/conda',
-  );
+  assert.equal(task?.execution && 'process' in task.execution && task.execution.process, '_conda');
   assert.deepEqual(task?.execution && 'args' in task.execution && task.execution.args, [
     'task',
     '--file',
@@ -330,7 +327,7 @@ test('resolveTask preserves its definition and resolves the manifest against its
     workspaceClient(async () => {
       throw new Error('resolveTask must not run discovery');
     }),
-    '/custom/conda',
+    '_conda',
     {
       listWorkspaceManifests: async () => [
         vscode.Uri.file(path.join(root, 'project', 'conda.toml')),
@@ -347,7 +344,7 @@ test('resolveTask preserves its definition and resolves the manifest against its
   assert.equal(resolved?.definition, definition);
   assert.equal(
     resolved?.execution && 'process' in resolved.execution && resolved.execution.process,
-    '/custom/conda',
+    '_conda',
   );
   assert.deepEqual(resolved?.execution && 'args' in resolved.execution && resolved.execution.args, [
     'task',

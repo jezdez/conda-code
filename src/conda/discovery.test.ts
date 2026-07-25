@@ -272,7 +272,10 @@ test('standard installation locations are discovered', async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   const home = path.join(root, 'home');
   const primary = path.join(root, 'primary');
-  const standardRoot = path.join(home, 'opt', 'miniforge3');
+  const standardRoot =
+    process.platform === 'win32'
+      ? path.join(home, 'miniforge3')
+      : path.join(home, 'opt', 'miniforge3');
   const primaryExecutable = await createInstallation(primary);
   await createInstallation(standardRoot);
 

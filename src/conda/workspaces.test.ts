@@ -86,7 +86,7 @@ test('read methods issue the documented JSON commands', async () => {
   });
   const client = new CondaWorkspacesClient({
     runner,
-    condaExecutable: '/custom/conda',
+    condaExecutable: '_conda',
     maxOutputBytes: 1024,
   });
 
@@ -104,25 +104,25 @@ test('read methods issue the documented JSON commands', async () => {
     })),
     [
       {
-        executable: '/custom/conda',
+        executable: '_conda',
         args: ['workspace', '--file', manifest, 'info', '--json'],
         cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
-        executable: '/custom/conda',
+        executable: '_conda',
         args: ['workspace', '--file', manifest, 'envs', '--json'],
         cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
-        executable: '/custom/conda',
+        executable: '_conda',
         args: ['workspace', '--file', manifest, 'info', '-e', 'default', '--json'],
         cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
       },
       {
-        executable: '/custom/conda',
+        executable: '_conda',
         args: ['workspace', '--file', manifest, 'list', '-e', 'default', '--json'],
         cwd: path.dirname(manifest),
         maxOutputBytes: 1024,
@@ -147,7 +147,7 @@ test('listTasks delegates JSON discovery to conda task', async () => {
   );
   const client = new CondaWorkspacesClient({
     runner,
-    condaExecutable: '/custom/conda',
+    condaExecutable: '_conda',
   });
 
   assert.deepEqual(await client.listTasks(manifest), {
@@ -155,7 +155,7 @@ test('listTasks delegates JSON discovery to conda task', async () => {
     tasks: [{ name: 'docs', description: 'Build documentation' }],
   });
   assert.deepEqual(runner.calls[0], {
-    executable: '/custom/conda',
+    executable: '_conda',
     args: ['task', '--file', manifest, 'list', '--json'],
     options: {
       signal: undefined,

@@ -71,7 +71,7 @@ test('regular conda reads use the configured executable and JSON contracts', asy
   });
   const client = new CondaClient({
     runner,
-    condaExecutable: '/custom/conda',
+    condaExecutable: '_conda',
     maxOutputBytes: 2048,
   });
 
@@ -89,12 +89,12 @@ test('regular conda reads use the configured executable and JSON contracts', asy
   ]);
   assert.deepEqual(runner.calls, [
     {
-      executable: '/custom/conda',
+      executable: '_conda',
       args: ['info', '--json'],
       options: { signal: undefined, maxOutputBytes: 2048 },
     },
     {
-      executable: '/custom/conda',
+      executable: '_conda',
       args: ['list', '--prefix', '/envs/a path', '--json', '--no-pip'],
       options: { signal: undefined, maxOutputBytes: 2048 },
     },
@@ -105,19 +105,19 @@ test('derived clients run through the owning conda executable', async () => {
   const runner = new RecordingRunner(() => success([]));
   const configured = new CondaClient({
     runner,
-    condaExecutable: '/configured/conda',
+    condaExecutable: 'conda',
     maxOutputBytes: 2048,
   });
-  const owner = configured.forExecutable('/owner/conda');
+  const owner = configured.forExecutable('_conda');
 
-  assert.equal(configured.executable, '/configured/conda');
-  assert.equal(owner.executable, '/owner/conda');
-  assert.equal(configured.forExecutable('/configured/conda'), configured);
+  assert.equal(configured.executable, 'conda');
+  assert.equal(owner.executable, '_conda');
+  assert.equal(configured.forExecutable('conda'), configured);
   await owner.listPrefixPackages('/owner/envs/demo');
 
   assert.deepEqual(runner.calls, [
     {
-      executable: '/owner/conda',
+      executable: '_conda',
       args: ['list', '--prefix', '/owner/envs/demo', '--json', '--no-pip'],
       options: { signal: undefined, maxOutputBytes: 2048 },
     },
@@ -222,7 +222,7 @@ test('Conda clients reject non-conda executables before running a command', () =
       /must invoke conda/,
     );
   }
-  const conda = new CondaClient({ runner, condaExecutable: '/opt/miniforge3/bin/conda' });
+  const conda = new CondaClient({ runner, condaExecutable: 'conda' });
   assert.throws(() => conda.forExecutable('/opt/tools/bin/solver'), /must invoke conda/);
   assert.deepEqual(runner.calls, []);
 });

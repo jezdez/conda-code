@@ -158,9 +158,13 @@ test('inspectCondaPrefix resolves a conda shim recorded in history', async (t) =
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-history-shim-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const base = path.join(root, 'base');
-  const executable = path.join(base, 'bin', 'conda');
+  const executable = path.join(
+    base,
+    process.platform === 'win32' ? 'Scripts' : 'bin',
+    process.platform === 'win32' ? 'conda.exe' : 'conda',
+  );
   const shimDirectory = path.join(root, 'shims');
-  const shim = path.join(shimDirectory, 'conda');
+  const shim = path.join(shimDirectory, path.basename(executable));
   const prefix = path.join(root, 'external');
   await Promise.all([
     mkdir(path.join(base, 'conda-meta'), { recursive: true }),
@@ -374,8 +378,10 @@ test('inspectCondaPrefix assigns a symlink alias to its canonical layout owner',
   t.after(() => rm(root, { recursive: true, force: true }));
   const configured = path.join(root, 'configured');
   const actual = path.join(root, 'actual');
-  const configuredExecutable = path.join(configured, 'bin', 'conda');
-  const actualExecutable = path.join(actual, 'bin', 'conda');
+  const executableDirectory = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const executableName = process.platform === 'win32' ? 'conda.exe' : 'conda';
+  const configuredExecutable = path.join(configured, executableDirectory, executableName);
+  const actualExecutable = path.join(actual, executableDirectory, executableName);
   const actualPrefix = path.join(actual, 'envs', 'demo');
   const alias = path.join(configured, 'envs', 'demo');
   await Promise.all([

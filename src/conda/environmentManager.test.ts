@@ -1508,17 +1508,10 @@ test('regular environments retain installation ownership across duplicate names'
   const secondary = path.join(root, 'secondary');
   const primaryNamed = path.join(primary, 'envs', 'duplicate');
   const secondaryNamed = path.join(secondary, 'envs', 'duplicate');
-  const primaryExecutable = path.join(primary, 'bin', 'conda');
-  const secondaryExecutable = path.join(secondary, 'bin', 'conda');
-  for (const installation of [primary, secondary]) {
-    await Promise.all([
-      mkdir(path.join(installation, 'conda-meta'), { recursive: true }),
-      mkdir(path.join(installation, 'pkgs'), { recursive: true }),
-      mkdir(path.join(installation, 'envs'), { recursive: true }),
-      mkdir(path.join(installation, 'bin'), { recursive: true }),
-    ]);
-  }
-  await Promise.all([writeFile(primaryExecutable, ''), writeFile(secondaryExecutable, '')]);
+  const [primaryExecutable, secondaryExecutable] = await Promise.all([
+    createCondaInstallation(primary),
+    createCondaInstallation(secondary),
+  ]);
   await Promise.all(
     [primaryNamed, secondaryNamed].map((prefix) =>
       mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
@@ -2056,7 +2049,7 @@ test('workspace package changes reject operations that cannot preserve the manif
 
 test('regular package operations use the environment owner', async (t) => {
   const { vscode, packageManager } = modules();
-  const prefix = '/alternate/envs/demo';
+  const prefix = path.resolve('/alternate/envs/demo');
   const ownerExecutable = '/alternate/bin/conda';
   const environment = {
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
