@@ -57,8 +57,8 @@ executable stays visible and uses direct execution, but mutation is refused.
 
 This ownership model also preserves the Base, Named, and Prefix classification
 used by the Python Environments conda provider for ordinary environments. It
-does not fold workspace environments, conda-global tool prefixes, or Pixi-owned
-prefixes into that classification.
+does not fold workspace environments, conda-global tool prefixes, conda-exec
+cache prefixes, or Pixi-owned prefixes into that classification.
 
 The configured conda is still primary. Conda Code uses it for creation,
 conda-workspaces, tasks, and plugin features because those operations need one

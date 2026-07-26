@@ -279,6 +279,52 @@ test('resolve inspects and retains an unknown conda prefix from its Python execu
   );
 });
 
+test('resolve excludes an unknown conda-exec cache prefix', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-resolve-exec-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home');
+  const execHome = path.join(root, 'exec-cache');
+  const prefix = path.join(execHome, 'envs', 'script--0123456789abcdef');
+  const python = path.join(prefix, 'bin', 'python');
+  await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+  await mkdir(path.dirname(python), { recursive: true });
+  await writeFile(
+    path.join(prefix, 'conda-meta', 'python-3.13.5-h1_0.json'),
+    JSON.stringify({ name: 'python', version: '3.13.5', subdir: 'linux-64' }),
+  );
+  await writeFile(python, '');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  vscode.__state.files = [];
+  vscode.__state.folders = [];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([]),
+    {
+      getInfo: async () => condaInfo(path.join(root, 'base')),
+    } as unknown as CondaClient,
+    {} as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+    {
+      discovery: {
+        environment: { PATH: '', CONDA_EXEC_HOME: execHome },
+        userHome: home,
+        standardRoots: [],
+        includeGlobalSources: false,
+      },
+    },
+  );
+  t.after(() => manager.dispose());
+
+  assert.equal(await manager.resolve(vscode.Uri.file(python)), undefined);
+  assert.equal(
+    (await manager.getEnvironments('all')).some(
+      (environment: PythonEnvironment) => environment.environmentPath.fsPath === prefix,
+    ),
+    false,
+  );
+});
+
 test('configured conda discovery does not call conda info', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-process-free-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1403,6 +1449,79 @@ test('cached regular discovery notices registry changes', async (t) => {
   );
 });
 
+test('regular discovery follows the active conda-exec cache root', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-exec-discovery-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home');
+  const installation = path.join(root, 'installation');
+  const executable = await createCondaInstallation(installation);
+  const firstHome = path.join(root, 'first-cache');
+  const secondHome = path.join(root, 'second-cache');
+  const firstPrefix = path.join(firstHome, 'envs', 'ruff--0123456789abcdef');
+  const secondPrefix = path.join(secondHome, 'envs', 'ruff--fedcba9876543210');
+  const ordinaryPrefix = path.join(firstHome, 'envs', 'project');
+  await Promise.all(
+    [firstPrefix, secondPrefix, ordinaryPrefix].map((prefix) =>
+      mkdir(path.join(prefix, 'conda-meta'), { recursive: true }),
+    ),
+  );
+  await mkdir(path.join(home, '.conda'), { recursive: true });
+  await writeFile(
+    path.join(home, '.conda', 'environments.txt'),
+    `${firstPrefix}\n${secondPrefix}\n${ordinaryPrefix}\n`,
+  );
+  const environment: NodeJS.ProcessEnv = {
+    PATH: '',
+    CONDA_ENVS_PATH: path.join(firstHome, 'envs'),
+    CONDA_EXEC_HOME: firstHome,
+  };
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  vscode.__state.files = [];
+  vscode.__state.folders = [];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([]),
+    {
+      executable,
+      getInfo: async () => {
+        throw new Error('regular discovery must not call conda info');
+      },
+    } as unknown as CondaClient,
+    {} as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+    {
+      discovery: {
+        environment,
+        userHome: home,
+        standardRoots: [],
+        includeGlobalSources: true,
+      },
+    },
+  );
+  t.after(() => manager.dispose());
+
+  const first = new Set(
+    (await manager.getEnvironments('all')).map(
+      (candidate: PythonEnvironment) => candidate.environmentPath.fsPath,
+    ),
+  );
+  assert.equal(first.has(firstPrefix), false);
+  assert.equal(first.has(secondPrefix), true);
+  assert.equal(first.has(ordinaryPrefix), true);
+
+  environment.CONDA_EXEC_HOME = secondHome;
+  await manager.refresh(undefined);
+  const second = new Set(
+    (await manager.getEnvironments('all')).map(
+      (candidate: PythonEnvironment) => candidate.environmentPath.fsPath,
+    ),
+  );
+  assert.equal(second.has(firstPrefix), true);
+  assert.equal(second.has(secondPrefix), false);
+  assert.equal(second.has(ordinaryPrefix), true);
+});
+
 test('cached regular discovery notices the first environment in a secondary installation', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-secondary-cache-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1894,6 +2013,72 @@ test('resolve respects failed workspace prefix and project reservations', async 
     ),
     false,
   );
+});
+
+test('workspace discovery excludes conda-exec cache prefixes and routes', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-exec-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home');
+  const execHome = path.join(root, 'exec-cache');
+  const projectPath = path.join(root, 'project');
+  const manifestPath = path.join(projectPath, 'conda.toml');
+  const prefix = path.join(execHome, 'envs', 'script--0123456789abcdef');
+  const python = path.join(prefix, 'bin', 'python');
+  await mkdir(projectPath);
+  await mkdir(path.join(prefix, 'conda-meta'), { recursive: true });
+  await mkdir(path.dirname(python), { recursive: true });
+  await writeFile(manifestPath, '[workspace]\nname = "demo"\n');
+  await writeFile(python, '');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(manifestPath)];
+  vscode.__state.folders = [{ uri: project }];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    {
+      getInfo: async () => condaInfo(path.join(root, 'base'), [prefix]),
+    } as unknown as CondaClient,
+    {
+      getWorkspaceInfo: async () => ({ manifest: manifestPath, name: 'demo' }),
+      discoverInstalledEnvironments: async () => ({
+        environments: [
+          {
+            name: 'default',
+            prefix,
+            condaDependencies: { python: '>=3.13' },
+            features: [],
+            python: { version: '3.13.5', executable: python },
+          },
+        ],
+        failures: [],
+      }),
+    } as unknown as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+    {
+      discovery: {
+        environment: { PATH: '', CONDA_EXEC_HOME: execHome },
+        userHome: home,
+        standardRoots: [],
+        includeGlobalSources: false,
+      },
+    },
+  );
+  t.after(() => manager.dispose());
+
+  assert.equal(
+    (await manager.getEnvironments('all')).some(
+      (environment: PythonEnvironment) => environment.environmentPath.fsPath === prefix,
+    ),
+    false,
+  );
+  const candidate = {
+    envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
+    environmentPath: vscode.Uri.file(prefix),
+  } as PythonEnvironment;
+  assert.equal(manager.getRoute(candidate), undefined);
+  assert.equal(manager.isConflictedPrefix(prefix), false);
 });
 
 test('workspace prefixes stay excluded through filesystem aliases', async (t) => {

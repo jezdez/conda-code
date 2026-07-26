@@ -10,6 +10,7 @@
 | Other conda prefix        | Yes when discovered or resolved | Outside Conda Code | Yes    | No     |
 | conda installation prefix | Yes when discovered             | Outside Conda Code | Yes    | No     |
 | conda-global tool prefix  | No                              | No                 | No     | No     |
+| conda-exec cache prefix   | No                              | No                 | No     | No     |
 | `.pixi/envs` prefix       | No                              | No                 | No     | No     |
 
 Regular discovery combines these sources:
@@ -53,8 +54,9 @@ mutate it. The primary configured conda remains the route for creation,
 workspaces, tasks, and plugin features.
 
 Workspace environments do not participate in ordinary environment
-classification. The conda-global tool prefixes and Pixi-owned prefixes remain
-excluded from regular discovery.
+classification. conda-global tool prefixes, conda-exec cache prefixes, and
+Pixi-owned prefixes remain excluded from regular discovery and explicit
+resolution.
 
 Project environment files are creation inputs, not discovery inputs. See
 [](project-creation.md). After creation, the regular named environment is
