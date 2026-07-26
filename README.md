@@ -15,7 +15,7 @@
 <p align="center">
   <a href="https://marketplace.visualstudio.com/items?itemName=jezdez.conda-code">
     <img
-      src="https://img.shields.io/visual-studio-marketplace/v/jezdez.conda-code?label=Marketplace&amp;color=44A833"
+      src="https://img.shields.io/github/v/release/jezdez/conda-code?label=Marketplace&amp;color=44A833"
       alt="Visual Studio Marketplace version"
     >
   </a>
