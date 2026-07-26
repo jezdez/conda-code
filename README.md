@@ -71,7 +71,8 @@ check regular environment and workspace discovery.
   deletion through the conda installation that owns each prefix.
 - **Ecosystem compatibility:** Include
   [conda-pypi](https://github.com/conda/conda-pypi) package records, ignore
-  [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes,
+  [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes
+  and [conda-exec](https://github.com/conda-incubator/conda-exec) cache prefixes,
   and leave Pixi projects to
   [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
   when it is installed.

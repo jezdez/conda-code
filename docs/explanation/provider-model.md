@@ -15,7 +15,8 @@ The provider runs `conda` and `conda workspace` commands through its own
 clients. It does not call the built-in conda manager from Python Environments.
 
 Its discovery and mutation paths apply workspace routing, safe removal rules,
-conda-global exclusion, conda-pypi record handling, and Pixi Code coexistence.
+conda-global and conda-exec cache exclusion, conda-pypi record handling, and
+Pixi Code coexistence.
 
 The configured conda is the primary route for creation, workspaces, tasks, and
 plugin features. Discovery can find additional local conda installations.
@@ -39,7 +40,8 @@ built-in branch.
 
 For ordinary conda environments, Conda Code follows the built-in manager's Base,
 Named, and Prefix classification. Workspace groups and the documented
-conda-global and Pixi exclusions are intentionally outside that parity.
+conda-global, conda-exec, and Pixi exclusions are intentionally outside that
+parity.
 
 ## One prefix inside Conda Code
 

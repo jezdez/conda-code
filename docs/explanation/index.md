@@ -33,8 +33,8 @@ remain visible.
 :link: ecosystem
 :link-type: doc
 
-How conda-workspaces, conda-pypi, conda-global, and Pixi Code relate to Conda
-Code, including which manifests contribute workspace tasks.
+How conda-workspaces, conda-pypi, conda-global, conda-exec, and Pixi Code
+relate to Conda Code, including which manifests contribute workspace tasks.
 :::
 
 ::::

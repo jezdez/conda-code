@@ -90,6 +90,42 @@ export function isCondaGlobalPrefix(
   return roots.some((root) => isPathWithin(root, prefix));
 }
 
+export function condaExecEnvironmentRoots(
+  environment: NodeJS.ProcessEnv = process.env,
+  userHome = homedir(),
+): readonly string[] {
+  const configured = environment.CONDA_EXEC_HOME?.trim();
+  if (configured) {
+    return [resolvedEnvironmentRoot(path.join(expandUser(configured, userHome), 'envs'))];
+  }
+
+  const primary = path.join(userHome, '.conda', 'exec');
+  if (process.platform !== 'win32' || existsSync(primary)) {
+    return [resolvedEnvironmentRoot(path.join(primary, 'envs'))];
+  }
+
+  const localData = environment.LOCALAPPDATA?.trim() || path.join(userHome, 'AppData', 'Local');
+  return [resolvedEnvironmentRoot(path.join(localData, 'conda', 'conda', 'exec', 'envs'))];
+}
+
+export function isCondaExecPrefix(
+  prefix: string,
+  roots: readonly string[] = condaExecEnvironmentRoots(),
+): boolean {
+  const candidate = canonicalEnvironmentPath(prefix);
+  return roots.some((root) => {
+    const canonicalRoot = canonicalEnvironmentPath(root);
+    const pathFlavor = /^[a-z]:[\\/]/i.test(canonicalRoot) ? path.win32 : path;
+    const relative = pathFlavor.relative(canonicalRoot, candidate);
+    return (
+      relative !== '' &&
+      !pathFlavor.isAbsolute(relative) &&
+      !relative.includes(pathFlavor.sep) &&
+      (/^[A-Za-z0-9_][A-Za-z0-9_.+-]*--[0-9a-f]+$/.test(relative) || /^\.tmp-.+$/.test(relative))
+    );
+  });
+}
+
 export function isPixiEnvironmentPrefix(prefix: string): boolean {
   const portable = canonicalEnvironmentPath(prefix).replaceAll('\\', '/').toLowerCase();
   return portable.includes('/.pixi/envs/') || portable.endsWith('/.pixi/envs');

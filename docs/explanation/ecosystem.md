@@ -59,6 +59,24 @@ Conda Code skips the active tool root:
 2. `~/.conda/global/envs` for the current layout
 3. `~/.cg/envs` for an existing legacy installation
 
+## conda-exec
+
+[conda-exec](https://conda-incubator.github.io/conda-exec/) creates hash-keyed
+environments for running tools and scripts without changing a project
+environment. Those prefixes are disposable execution caches, not environment
+choices.
+
+Conda Code excludes the active conda-exec cache from regular discovery,
+explicit resolution, and workspace routing. It does not select, activate,
+modify, or delete those prefixes. Changing a cached prefix would make its
+contents disagree with the specifications, channels, or lock content encoded
+by its cache key. conda-exec also owns cache refresh and automatic cleanup. The
+active cache is `$CONDA_EXEC_HOME/envs` when configured and conda-exec's
+platform default otherwise.
+
+Run tools and scripts through `conda exec`. Inspect and remove cached prefixes
+with `conda exec --list` and `conda exec --clean`.
+
 ## Pixi Code
 
 [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)

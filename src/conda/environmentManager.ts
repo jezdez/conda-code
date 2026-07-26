@@ -37,9 +37,11 @@ import {
 } from './discovery';
 import { fingerprintDiscoveryPaths } from './discoveryCache';
 import {
-  condaPrefixCandidates,
+  condaExecEnvironmentRoots,
   condaGlobalEnvironmentRoots,
+  condaPrefixCandidates,
   inspectCondaPrefix,
+  isCondaExecPrefix,
   isCondaGlobalPrefix,
   isPixiEnvironmentPrefix,
   isPathWithin,
@@ -198,6 +200,7 @@ function discoveryEnvironmentValues(
     'CONDA_ENVS_DIRS',
     'CONDA_ENVS_PATH',
     'CONDA_EXE',
+    'CONDA_EXEC_HOME',
     'CONDA_GLOBAL_HOME',
     'CONDA_PYTHON_EXE',
     'CONDA_ROOT_PREFIX',
@@ -556,11 +559,15 @@ export class CondaEnvironmentManager
     if (info === undefined) {
       return undefined;
     }
+    const discoveryEnvironment = this.options.discovery?.environment ?? process.env;
+    const discoveryUserHome = this.options.discovery?.userHome ?? homedir();
+    const execRoots = condaExecEnvironmentRoots(discoveryEnvironment, discoveryUserHome);
     const globalRoots = condaGlobalEnvironmentRoots();
     for (const candidate of condaPrefixCandidates(context.fsPath)) {
       const metadata = await this.inspectRegularPrefix(candidate, info);
       if (
         metadata === undefined ||
+        isCondaExecPrefix(metadata.prefix, execRoots) ||
         isCondaGlobalPrefix(metadata.prefix, globalRoots) ||
         isPixiEnvironmentPrefix(metadata.prefix) ||
         this.routes.isConflictedPrefix(metadata.prefix) ||
@@ -745,6 +752,9 @@ export class CondaEnvironmentManager
         this.environmentItemsByPrefix.clear();
         return;
       }
+      const discoveryEnvironment = this.options.discovery?.environment ?? process.env;
+      const discoveryUserHome = this.options.discovery?.userHome ?? homedir();
+      const execRoots = condaExecEnvironmentRoots(discoveryEnvironment, discoveryUserHome);
       const globalRoots = condaGlobalEnvironmentRoots();
       const failedManifestKeys = new Set<string>();
       const failedProjectRoots: Uri[] = [];
@@ -790,7 +800,11 @@ export class CondaEnvironmentManager
       );
       const routeEntries = [...workspaceRoutesByManifest.values()]
         .flat()
-        .filter((route) => !isCondaGlobalPrefix(route.prefix, globalRoots));
+        .filter(
+          (route) =>
+            !isCondaExecPrefix(route.prefix, execRoots) &&
+            !isCondaGlobalPrefix(route.prefix, globalRoots),
+        );
       const routes = new CondaWorkspaceRouteRegistry();
       routes.replaceAll(routeEntries);
       const workspacePrefixes = new Set(
@@ -810,6 +824,7 @@ export class CondaEnvironmentManager
         ...entry,
         environments: entry.environments.filter(
           (environment) =>
+            !isCondaExecPrefix(environment.environmentPath.fsPath, execRoots) &&
             !isCondaGlobalPrefix(environment.environmentPath.fsPath, globalRoots) &&
             !routes.isConflictedPrefix(environment.environmentPath.fsPath),
         ),
@@ -823,6 +838,7 @@ export class CondaEnvironmentManager
       const regular = this.regularEnvironmentsFromDiscovery(
         regularDiscovery,
         workspacePrefixes,
+        execRoots,
         globalRoots,
         reservedWorkspaceProjectRoots,
       );
@@ -1106,6 +1122,7 @@ export class CondaEnvironmentManager
   private regularEnvironmentsFromDiscovery(
     discovery: CondaDiscoveryResult,
     workspacePrefixes: ReadonlySet<string>,
+    execRoots: readonly string[],
     globalRoots: readonly string[],
     reservedProjectRoots: readonly Uri[],
   ): {
@@ -1119,6 +1136,7 @@ export class CondaEnvironmentManager
     const metadata = discovery.metadata.filter(
       (item) =>
         !workspacePrefixes.has(canonicalEnvironmentPath(item.prefix)) &&
+        !isCondaExecPrefix(item.prefix, execRoots) &&
         !isCondaGlobalPrefix(item.prefix, globalRoots) &&
         !isPixiEnvironmentPrefix(item.prefix) &&
         !reservedProjectRoots.some(

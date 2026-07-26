@@ -8,10 +8,12 @@ import type { CondaInfo } from './parsers';
 import { isRunnableCondaExecutable } from './executable';
 import {
   canonicalCondaPath,
+  condaExecEnvironmentRoots,
   condaGlobalEnvironmentRoots,
   condaPrefixCandidates,
   findCondaExecutable,
   inspectCondaPrefix,
+  isCondaExecPrefix,
   isCondaGlobalPrefix,
   isManagedProjectPrefix,
   isPathWithin,
@@ -440,6 +442,72 @@ test('conda-global resolves a configured symlink', async (t) => {
   const roots = condaGlobalEnvironmentRoots({ CONDA_GLOBAL_HOME: linked }, root);
   assert.equal(isCondaGlobalPrefix(path.join(actual, 'envs', 'ruff'), roots), true);
 });
+
+test('conda-exec recognizes only cache entries below its active root', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-exec-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = path.join(root, 'home');
+  const configuredEnvs = path.join(home, 'exec-cache', 'envs');
+  const toolPrefix = path.join(configuredEnvs, 'ruff--abcd1234');
+  const scriptPrefix = path.join(configuredEnvs, 'script--fedcba9876543210');
+  const temporaryPrefix = path.join(configuredEnvs, '.tmp-abcdef');
+  const ordinaryPrefix = path.join(configuredEnvs, 'project');
+  const nestedPrefix = path.join(toolPrefix, 'nested');
+  const outsidePrefix = path.join(home, 'elsewhere', 'ruff--abcd1234');
+  const defaultRoot = path.join(home, '.conda', 'exec', 'envs');
+  await Promise.all(
+    [scriptPrefix, temporaryPrefix, ordinaryPrefix, nestedPrefix, outsidePrefix, defaultRoot].map(
+      (prefix) => mkdir(prefix, { recursive: true }),
+    ),
+  );
+
+  const configuredRoots = condaExecEnvironmentRoots({ CONDA_EXEC_HOME: '~/exec-cache' }, home);
+  assert.deepEqual(configuredRoots, [
+    normalizeEnvironmentPath(await canonicalCondaPath(configuredEnvs)),
+  ]);
+  assert.equal(isCondaExecPrefix(toolPrefix, configuredRoots), true);
+  assert.equal(isCondaExecPrefix(scriptPrefix, configuredRoots), true);
+  assert.equal(isCondaExecPrefix(temporaryPrefix, configuredRoots), true);
+  assert.equal(isCondaExecPrefix(ordinaryPrefix, configuredRoots), false);
+  assert.equal(isCondaExecPrefix(nestedPrefix, configuredRoots), false);
+  assert.equal(isCondaExecPrefix(outsidePrefix, configuredRoots), false);
+  assert.deepEqual(condaExecEnvironmentRoots({ CONDA_EXEC_HOME: '' }, home), [
+    normalizeEnvironmentPath(await canonicalCondaPath(defaultRoot)),
+  ]);
+});
+
+test('conda-exec recognizes cache prefixes through filesystem aliases', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-exec-link-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const actual = path.join(root, 'actual');
+  const linked = path.join(root, 'linked');
+  const prefix = path.join(actual, 'envs', 'ruff--0123456789abcdef');
+  const alias = path.join(root, 'outside');
+  await mkdir(prefix, { recursive: true });
+  await symlink(actual, linked, process.platform === 'win32' ? 'junction' : 'dir');
+  await symlink(prefix, alias, process.platform === 'win32' ? 'junction' : 'dir');
+
+  const roots = condaExecEnvironmentRoots({ CONDA_EXEC_HOME: linked }, root);
+  assert.equal(isCondaExecPrefix(prefix, roots), true);
+  assert.equal(isCondaExecPrefix(alias, roots), true);
+});
+
+test(
+  'conda-exec uses the Windows local data fallback when its primary root is absent',
+  { skip: process.platform !== 'win32' },
+  async (t) => {
+    const root = await mkdtemp(path.join(tmpdir(), 'conda-code-exec-windows-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const home = path.join(root, 'home');
+    const localData = path.join(root, 'local-data');
+    const fallback = path.join(localData, 'conda', 'conda', 'exec', 'envs');
+    await mkdir(fallback, { recursive: true });
+
+    assert.deepEqual(condaExecEnvironmentRoots({ LOCALAPPDATA: localData }, home), [
+      normalizeEnvironmentPath(await canonicalCondaPath(fallback)),
+    ]);
+  },
+);
 
 test('Pixi environment prefixes are recognized across path separators', () => {
   assert.equal(isPixiEnvironmentPrefix('/work/project/.pixi/envs/default'), true);
