@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Exclude conda-exec cache prefixes from regular discovery, explicit resolution,
+  and workspace routing across `CONDA_EXEC_HOME`, platform-default roots, and
+  filesystem aliases
+- Refresh the README and GitHub Pages experience with clearer setup guidance,
+  navigation, and section landing pages
+
 ## 0.3.0
 
 - Discover multiple conda installations, match Base, Named, and Prefix
