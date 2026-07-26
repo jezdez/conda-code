@@ -1,11 +1,3 @@
-<p align="center">
-  <img
-    src="https://raw.githubusercontent.com/jezdez/conda-code/main/assets/conda-logo.png"
-    alt="Conda Code logo"
-    width="128"
-  >
-</p>
-
 <h1 align="center">Conda Code</h1>
 
 <p align="center">
