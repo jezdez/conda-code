@@ -144,7 +144,8 @@ test('offers only owned, unregistered workspace roots', async () => {
       },
     } as unknown as CondaWorkspacesClient,
     {
-      shouldHandleManifest: (candidate) => !candidate.fsPath.includes('/unowned/'),
+      shouldHandleManifest: (candidate) =>
+        path.basename(path.dirname(candidate.fsPath)) !== 'unowned',
     },
   );
 
