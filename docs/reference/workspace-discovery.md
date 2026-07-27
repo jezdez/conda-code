@@ -63,7 +63,10 @@ Conda Code watches:
 - `pyproject.toml`
 - `conda.lock`
 
-Changes schedule a refresh. The manual
-**Conda Code: Refresh Environments** command clears package data and refreshes
-environment and task sources. It also starts forced conda-information
-enrichment in the background.
+File changes and project-scoped refreshes inspect only the affected registered
+workspaces. Conda Code still reconciles the full published environment set after
+that inspection.
+
+The manual **Conda Code: Refresh Environments** command clears package data and
+refreshes all environment and task sources. It also starts forced
+conda-information enrichment in the background.

@@ -76,6 +76,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const managerId = `${context.extension.id}:conda`;
   let runtime: CondaCodeRuntime | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let scheduledScope: Uri | undefined;
   let scheduledInvalidateRegular = false;
   let scheduledForceCondaInfo = false;
   let condaInfoCacheWrites: Promise<void> = Promise.resolve();
@@ -329,6 +330,16 @@ export async function activate(context: ExtensionContext): Promise<void> {
     invalidateRegular = false,
     forceCondaInfo = false,
   ): void => {
+    const projectScope = scope === undefined ? undefined : api.getPythonProject(scope)?.uri;
+    if (refreshTimer === undefined) {
+      scheduledScope = projectScope;
+    } else if (
+      projectScope === undefined ||
+      scheduledScope === undefined ||
+      projectScope.toString(true) !== scheduledScope.toString(true)
+    ) {
+      scheduledScope = undefined;
+    }
     scheduledInvalidateRegular ||= invalidateRegular;
     scheduledForceCondaInfo ||= forceCondaInfo;
     if (refreshTimer !== undefined) {
@@ -336,11 +347,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }
     refreshTimer = setTimeout(() => {
       refreshTimer = undefined;
+      const nextScope = scheduledScope;
       const nextInvalidateRegular = scheduledInvalidateRegular;
       const nextForceCondaInfo = scheduledForceCondaInfo;
+      scheduledScope = undefined;
       scheduledInvalidateRegular = false;
       scheduledForceCondaInfo = false;
-      void refresh(scope, nextInvalidateRegular, nextForceCondaInfo);
+      void refresh(nextScope, nextInvalidateRegular, nextForceCondaInfo);
     }, REFRESH_DELAY_MS);
   };
 
@@ -349,6 +362,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       clearTimeout(refreshTimer);
       refreshTimer = undefined;
     }
+    scheduledScope = undefined;
     scheduledInvalidateRegular = false;
     scheduledForceCondaInfo = false;
     return refresh(undefined, true, true);

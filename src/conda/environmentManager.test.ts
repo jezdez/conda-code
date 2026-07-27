@@ -221,6 +221,32 @@ function emptyWorkspaceDiscovery(manifest: string) {
   } as const;
 }
 
+function installedWorkspaceDiscovery(
+  manifest: string,
+  name: string,
+  version: string,
+  prefix = path.join(path.dirname(manifest), '.conda', 'envs', 'default'),
+) {
+  const environment: InstalledWorkspaceEnvironment = {
+    name: 'default',
+    prefix,
+    features: [],
+    python: {
+      version,
+      executable: path.join(prefix, 'bin', 'python'),
+    },
+    packages: [],
+    directDependencies: [{ name: 'python', pypi: false }],
+  };
+  return {
+    info: { manifest, name },
+    snapshotAvailable: false,
+    declaredEnvironments: [{ name: 'default', features: [], installed: true }],
+    environments: [environment],
+    failures: [],
+  };
+}
+
 async function createCondaInstallation(root: string): Promise<string> {
   const executable = path.join(
     root,
@@ -1237,6 +1263,171 @@ test('a request queued during a failed refresh still gets a follow-up pass', asy
   await first;
 
   assert.equal(entryCalls, 2);
+});
+
+test('scoped workspace refresh preserves and does not rediscover other projects', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-scoped-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const alphaPath = path.join(root, 'alpha');
+  const betaPath = path.join(root, 'beta');
+  const alphaManifest = path.join(alphaPath, 'conda.toml');
+  const betaManifest = path.join(betaPath, 'conda.toml');
+  await Promise.all([mkdir(alphaPath), mkdir(betaPath)]);
+  await Promise.all([
+    writeFile(alphaManifest, '[workspace]\nname = "alpha"\n'),
+    writeFile(betaManifest, '[workspace]\nname = "beta"\n'),
+  ]);
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const alpha = vscode.Uri.file(alphaPath);
+  const beta = vscode.Uri.file(betaPath);
+  const alphaManifestUri = vscode.Uri.file(alphaManifest);
+  const betaManifestUri = vscode.Uri.file(betaManifest);
+  vscode.__state.files = [alphaManifestUri, betaManifestUri];
+  vscode.__state.folders = [{ uri: alpha }, { uri: beta }];
+  const versions = new Map([
+    [alphaManifest, '3.13.1'],
+    [betaManifest, '3.13.1'],
+  ]);
+  const prefixes = new Map([
+    [alphaManifest, path.join(alphaPath, '.conda', 'envs', 'default')],
+    [betaManifest, path.join(betaPath, '.conda', 'envs', 'default')],
+  ]);
+  const discoveries: string[] = [];
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      discoveries.push(manifest);
+      return installedWorkspaceDiscovery(
+        manifest,
+        manifest === alphaManifest ? 'alpha' : 'beta',
+        versions.get(manifest) ?? '3.13.1',
+        prefixes.get(manifest),
+      );
+    },
+  } as unknown as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([alpha, beta]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await manager.refresh(undefined);
+  const initialBeta = (await manager.getEnvironments('all')).find(
+    (environment: PythonEnvironment) => environment.environmentPath.fsPath.includes(betaPath),
+  );
+  assert.ok(initialBeta);
+
+  discoveries.length = 0;
+  versions.set(alphaManifest, '3.13.2');
+  await manager.refresh(alpha);
+  const updated = await manager.getEnvironments('all');
+  assert.deepEqual(discoveries, [alphaManifest]);
+  assert.equal(
+    updated.find((environment: PythonEnvironment) =>
+      environment.environmentPath.fsPath.includes(alphaPath),
+    )?.displayName,
+    'alpha:default (3.13.2)',
+  );
+  assert.equal(
+    updated.find((environment: PythonEnvironment) =>
+      environment.environmentPath.fsPath.includes(betaPath),
+    )?.envId.id,
+    initialBeta.envId.id,
+  );
+
+  discoveries.length = 0;
+  prefixes.set(alphaManifest, prefixes.get(betaManifest) ?? '');
+  await manager.refresh(alpha);
+  assert.deepEqual(discoveries, [alphaManifest]);
+  assert.equal(
+    (await manager.getEnvironments('all')).some((environment: PythonEnvironment) =>
+      ['alpha:default (3.13.2)', 'beta:default (3.13.1)'].includes(environment.displayName),
+    ),
+    false,
+  );
+
+  discoveries.length = 0;
+  vscode.__state.files = [betaManifestUri];
+  await manager.refresh(alpha);
+  assert.deepEqual(discoveries, []);
+  assert.deepEqual(
+    (await manager.getWorkspaceManifests()).map((manifest) => manifest.fsPath),
+    [betaManifest],
+  );
+  const restoredBeta = (await manager.getEnvironments('all')).find(
+    (environment: PythonEnvironment) => environment.displayName === 'beta:default (3.13.1)',
+  );
+  assert.ok(restoredBeta);
+  assert.equal(manager.getRoute(restoredBeta)?.projectUri.fsPath, betaPath);
+});
+
+test('different scopes queued together promote the follow-up refresh to global', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-scoped-refresh-queue-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const alphaPath = path.join(root, 'alpha');
+  const betaPath = path.join(root, 'beta');
+  const alphaManifest = path.join(alphaPath, 'conda.toml');
+  const betaManifest = path.join(betaPath, 'conda.toml');
+  await Promise.all([mkdir(alphaPath), mkdir(betaPath)]);
+  await Promise.all([
+    writeFile(alphaManifest, '[workspace]\nname = "alpha"\n'),
+    writeFile(betaManifest, '[workspace]\nname = "beta"\n'),
+  ]);
+
+  let startAlphaRefresh!: () => void;
+  const alphaRefreshStarted = new Promise<void>((resolve) => {
+    startAlphaRefresh = resolve;
+  });
+  let releaseAlphaRefresh!: () => void;
+  const alphaRefreshGate = new Promise<void>((resolve) => {
+    releaseAlphaRefresh = resolve;
+  });
+  let blockAlpha = false;
+  const discoveries: string[] = [];
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      discoveries.push(manifest);
+      if (blockAlpha && manifest === alphaManifest) {
+        blockAlpha = false;
+        startAlphaRefresh();
+        await alphaRefreshGate;
+      }
+      return installedWorkspaceDiscovery(
+        manifest,
+        manifest === alphaManifest ? 'alpha' : 'beta',
+        '3.13.1',
+      );
+    },
+  } as unknown as CondaWorkspacesClient;
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const alpha = vscode.Uri.file(alphaPath);
+  const beta = vscode.Uri.file(betaPath);
+  vscode.__state.files = [vscode.Uri.file(alphaManifest), vscode.Uri.file(betaManifest)];
+  vscode.__state.folders = [{ uri: alpha }, { uri: beta }];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([alpha, beta]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await manager.refresh(undefined);
+  discoveries.length = 0;
+  blockAlpha = true;
+  const first = manager.refresh(alpha);
+  await alphaRefreshStarted;
+  const followUp = manager.refresh(beta);
+  assert.equal(followUp, first);
+  releaseAlphaRefresh();
+  await first;
+
+  assert.equal(discoveries.filter((manifest) => manifest === alphaManifest).length, 2);
+  assert.equal(discoveries.filter((manifest) => manifest === betaManifest).length, 1);
 });
 
 test('disposing during refresh prevents the old runtime from committing state', async (t) => {
