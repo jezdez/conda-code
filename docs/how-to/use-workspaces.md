@@ -1,5 +1,54 @@
 # Use conda workspaces
 
+This is the optional conda-workspaces integration. For regular conda projects,
+create a named environment from `environment.yml` instead.
+
+::::{card} Run a workspace task from its manifest
+:class-card: sd-shadow-sm
+
+:::{image} ../_static/conda-workspace-demo.gif
+:alt: The demo opens conda.toml, selects the Conda Code play action, chooses verify-workspace, and shows its terminal output.
+:::
+
+Conda Code discovers the task through conda-workspaces. Its editor action opens
+the task picker, then VS Code runs the selected task in a terminal.
+::::
+
+(workspace-sidebar)=
+
+## Know which part does what
+
+Four components contribute to the workspace experience:
+
+::::{grid} 1 1 2 2
+:gutter: 2
+
+:::{grid-item-card} {octicon}`project` Python Environments
+
+Owns the shared **Python Projects** and **Environment Managers** views. Register
+the project here, then select environments from the shared tree.
+:::
+
+:::{grid-item-card} {octicon}`plug` Conda Code
+
+Adds the **Conda Code** branch, supplies environment and package records, routes
+workspace operations, and contributes **Run Workspace Task**.
+:::
+
+:::{grid-item-card} {octicon}`package` conda-workspaces
+
+Owns the manifest, declared environments, installed workspace state, dependency
+changes, task graph, and task execution.
+:::
+
+:::{grid-item-card} {octicon}`terminal` VS Code Tasks
+
+Shows the task picker, starts the process, and owns the task terminal. Conda
+Code hands it the selected `conda task` invocation.
+:::
+
+::::
+
 ## Register the project
 
 Add the manifest directory as a Python project in the Python Environments view.
@@ -18,8 +67,13 @@ matching filename alone is not enough.
 ## Run a declared task
 
 Save the task in the manifest. Select the Conda Code workspace environment that
-should run it, then run **Tasks: Run Task** from the Command Palette. Select the
-task listed under the `conda-workspaces` source.
+should run it, open the manifest, then select the {octicon}`play` **Run Workspace
+Task** action in the editor title. Choose the declared task. The demo selects
+`verify-workspace`.
+
+You can also run **Conda Code: Run Workspace Task** from the Command Palette.
+The generic **Tasks: Run Task** command remains available for all discovered
+`conda-workspace` tasks.
 
 Conda Code asks conda-workspaces to list the tasks from the selected manifest
 and delegates the selected task to `conda task`. When the selected environment

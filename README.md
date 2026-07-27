@@ -25,6 +25,14 @@ It discovers regular environments across local conda installations and
 integrates [conda-workspaces](https://github.com/conda-incubator/conda-workspaces)
 project environments and tasks in the same provider.
 
+![Conda Code runs Create Environment from File for environment.yml and selects the resulting named environment for the project in Visual Studio Code.](docs/_static/conda-code-demo.gif)
+
+Run **Conda Code: Create Environment from File** from `environment.yml`. The
+resulting regular named environment appears as the selected project environment
+in the shared Python Environments UI. Python Environments supplies the VS Code
+views. Conda Code supplies the **Conda Code** manager and performs conda
+discovery, creation, activation, package changes, and removal.
+
 ## Get started
 
 1. Install
@@ -65,8 +73,8 @@ check regular environment and workspace discovery.
   `environment.yml`, [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit
   files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
 - **conda workspaces:** Discover, install, and manage conda-workspaces
-  environments, then run declared tasks through the native VS Code task
-  interface.
+  environments, then run declared tasks from the manifest editor through native
+  VS Code Tasks.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix.
 - **Ecosystem compatibility:** Include

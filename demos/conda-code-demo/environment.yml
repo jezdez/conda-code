@@ -1,0 +1,4 @@
+name: conda-code-demo
+dependencies:
+  - python=3.13
+  - rich>=14

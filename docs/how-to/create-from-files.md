@@ -8,18 +8,28 @@ Conda Code recognizes these files at a registered Python project root:
 - `conda-lock.yml`
 - `conda-lock.yaml`
 
-An existing discovered conda workspace takes precedence. Creating an environment
-for that project installs one of its declared environments instead.
+(editor-file-create)=
+
+## Create from the open file
+
+1. Register the file's directory as a Python project.
+2. Open the supported file from the project root.
+3. Choose the {octicon}`plus` **Conda Code: Create Environment from File**
+   action in the editor title.
+
+Conda Code derives an available environment name from the project directory,
+creates a regular named environment, and selects it for the project.
+
+:::{tip}
+The open file is the input. If the project contains several supported files,
+open the one you want and run the action. Conda Code does not ask you to choose
+among the other files.
+:::
 
 ## Use `environment.yml`
 
-1. Put `environment.yml` or `environment.yaml` at the project root.
-2. Run **Python Envs: Create Environment**.
-3. Select the file.
-4. Enter the environment name.
-
-Quick Create skips the file and name prompts when there is one recognized input.
-It derives an available name from the project directory.
+Put `environment.yml` or `environment.yaml` at the project root, open it, and run
+**Conda Code: Create Environment from File**.
 
 Conda Code runs this command from the project root:
 
@@ -28,8 +38,7 @@ conda create --yes --json --name NAME --file environment.yml
 ```
 
 The command-line name overrides `name` or `prefix` in the
-[CEP 24](https://conda.org/learn/ceps/cep-0024/) file. Packages selected during
-creation are installed after the file-based environment is created.
+[CEP 24](https://conda.org/learn/ceps/cep-0024/) file.
 
 The file is not watched or updated. Use regular package management for the
 created prefix.
@@ -39,12 +48,12 @@ created prefix.
 Place a valid [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit file at
 the project root. It must contain the `@EXPLICIT` marker.
 
-Create the environment through Quick Create or select `explicit.txt` during
-interactive creation. Conda Code passes `--no-default-packages` so configured
-creation defaults cannot change the exact package set.
+Open `explicit.txt` and run **Conda Code: Create Environment from File**. Conda
+Code passes `--no-default-packages` so configured creation defaults cannot
+change the exact package set.
 
-Do not select additional packages during creation. Conda Code refuses the
-operation instead of changing the exact input.
+The editor action does not add packages. The shared Python Environments flow
+refuses additional packages instead of changing the exact input.
 
 ## Use a conda-lock file
 
@@ -54,16 +63,27 @@ newer in the configured conda base environment. Follow the
 [conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
 using the channels configured for your conda distribution.
 
-Put `conda-lock.yml` or `conda-lock.yaml` at the project root, then create the
-environment through Quick Create or interactive creation.
+Put `conda-lock.yml` or `conda-lock.yaml` at the project root. Open the file and
+run **Conda Code: Create Environment from File**.
 
-Conda Code treats these as exact inputs. It disables configured default packages
-and refuses additional creation packages.
+Conda Code treats these as exact inputs. It disables configured default packages.
+The shared Python Environments flow refuses additional creation packages.
 
-## Choose among several files
+## Use Python Environments creation instead
 
-Quick Create fails when the project root contains several recognized inputs. Run
-**Python Envs: Create Environment** and choose the file to use.
+The shared Python Environments creation flow remains available:
 
-The same interactive menu also offers a conda workspace, a project `.conda`
-prefix, and a regular named environment.
+1. Run **Python Envs: Create Environment**.
+2. Choose **Conda Code** if VS Code asks for an environment manager.
+3. Select the project file.
+4. Enter the environment name.
+
+Quick Create uses the only recognized project input and derives an available
+name from the project directory. It fails when the project contains several
+recognized inputs. Interactive creation lists every recognized input and lets
+you choose one.
+
+An existing discovered conda workspace takes precedence in this shared creation
+flow. The interactive menu also offers a conda workspace, a project `.conda`
+prefix, and a regular named environment. Packages selected during interactive
+creation are installed after a file-based environment is created.

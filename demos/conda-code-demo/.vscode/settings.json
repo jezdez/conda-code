@@ -1,0 +1,11 @@
+{
+  "python-envs.defaultEnvManager": "jezdez.conda-code:conda",
+  "python-envs.defaultPackageManager": "jezdez.conda-code:conda",
+  "python-envs.pythonProjects": [
+    {
+      "path": ".",
+      "envManager": "jezdez.conda-code:conda",
+      "packageManager": "jezdez.conda-code:conda"
+    }
+  ]
+}

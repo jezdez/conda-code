@@ -63,6 +63,16 @@ workspace default.
 
 Conda Code does not edit task definitions and does not add task arguments.
 
+## User interface
+
+Open a confirmed workspace manifest and select the {octicon}`play` **Run
+Workspace Task** action in the editor title. The command lists tasks only from
+that manifest and executes the selected native VS Code task. The same action is
+available as **Conda Code: Run Workspace Task** in the Command Palette.
+
+The generic **Tasks: Run Task** command lists discovered tasks from every
+registered workspace.
+
 ## Refresh
 
 Saving `conda.toml`, `pixi.toml`, or `pyproject.toml` invalidates task

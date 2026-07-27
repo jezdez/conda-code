@@ -1,0 +1,12 @@
+[workspace]
+name = "conda-code-demo"
+channels = ["defaults"]
+platforms = ["linux-64", "osx-arm64", "win-64"]
+
+[dependencies]
+python = "3.13.*"
+rich = ">=14"
+
+[tasks.verify-workspace]
+cmd = "python demo.py"
+description = "Verify Python and Rich in the workspace environment"

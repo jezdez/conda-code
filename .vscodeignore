@@ -1,6 +1,7 @@
 .git/**
 .github/**
 .pixi/**
+.ruff_cache/**
 .vscode/**
 .vscode-test/**
 .gitignore
@@ -8,6 +9,7 @@
 .prettierignore
 coverage/**
 docs/**
+demos/**
 eslint.config.mjs
 dist/**/*.test.js
 dist/**/*.js.map

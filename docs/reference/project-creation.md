@@ -20,9 +20,24 @@ Conda Code does not automatically treat `requirements.txt`, `spec.txt`, or
 pip packages in Python projects. Pixi projects stay with Pixi Code when it is
 installed, or with conda-workspaces otherwise.
 
-## Precedence
+## Selected file action
 
-Creation follows this order:
+**Conda Code: Create Environment from File** accepts one of the exact filenames
+above when it is open from the root of a registered local Python project. It
+derives an available named environment from the project directory, creates from
+that file, and selects the result for the project.
+
+The selected file is authoritative for this action. If several supported files
+exist at the project root, the action uses the open file without prompting for
+the others. For example, running it from `environment.yml` uses that file even
+when `conda-lock.yml` is present.
+
+Nested files, files outside a registered Python project, and other filenames are
+refused.
+
+## Python Environments creation precedence
+
+Creation started through Python Environments follows this order:
 
 1. An existing discovered conda workspace offers its uninstalled environment
    declarations.
@@ -44,9 +59,9 @@ The project `.conda` prefix is never selected by Quick Create.
 
 ## Naming
 
-Quick Create derives a named environment from the project directory name. It
-replaces unsupported characters with hyphens and adds `-1`, `-2`, and later
-suffixes until the name is available.
+The selected file action and Quick Create derive a named environment from the
+project directory name. They replace unsupported characters with hyphens and
+add `-1`, `-2`, and later suffixes until the name is available.
 
 Interactive creation asks for a name. Names must start with a letter or number
 and may contain letters, numbers, dots, underscores, and hyphens. `base`,

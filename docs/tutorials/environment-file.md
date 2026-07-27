@@ -32,12 +32,24 @@ environment. Conda uses the channels configured for the selected installation.
 
 ## Create the environment
 
+1. Open `environment.yml` in the editor.
+2. Choose the {octicon}`plus` **Conda Code: Create Environment from File**
+   action in the editor title.
+
+Conda Code creates a named environment called `conda-code-demo`. If that name is
+already used, it adds a numeric suffix. When creation finishes, the environment
+appears as the selected environment for `conda-code-demo` in the Python
+Environments view.
+
+:::{dropdown} Create through Python Environments instead
+
 1. Open the Python Environments view.
 2. Start **Quick Create** for the project.
 3. Select **Conda Code** if VS Code asks for an environment manager.
 
-Conda Code finds the single project input and creates a named environment called
-`conda-code-demo`. If that name is already used, it adds a numeric suffix.
+Quick Create finds the single project input and creates the same named
+environment.
+:::
 
 Inspect the result:
 
@@ -62,5 +74,5 @@ The package is installed in the prefix. `environment.yml` is unchanged.
 Conda Code ran
 `conda create --yes --json --name conda-code-demo --file environment.yml` from
 the project root. The file was a one-time creation input. The resulting
-environment is an ordinary named conda environment, so later package operations
-use regular `conda` commands.
+environment is an ordinary named conda environment selected for the project, so
+later package operations use regular `conda` commands.

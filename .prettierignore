@@ -1,1 +1,3 @@
 pixi.lock
+demos/**/.conda/**
+demos/**/conda.lock

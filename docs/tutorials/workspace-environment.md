@@ -8,6 +8,12 @@ its environment.
 Complete the [](../quickstart.md), open a local folder in VS Code, and register
 that folder as a Python project.
 
+:::{seealso}
+Python Environments draws the shared sidebar and prompts. Conda Code contributes
+the **Conda Code** branch and handles operations aimed at it. See
+{ref}`workspace-sidebar` for the role of each component.
+:::
+
 ## Quick create the workspace
 
 1. Open the Python Environments view.
@@ -59,9 +65,11 @@ python-version = { cmd = "python --version", description = "Show the Python vers
 
 1. Select the workspace's **default** environment in the Python Environments
    view.
-2. Open the Command Palette.
-3. Run **Tasks: Run Task**.
-4. Select **python-version** from the `conda-workspaces` source.
+2. Open `conda.toml`.
+3. Select the {octicon}`play` **Run Workspace Task** action in the editor title.
+4. Select **python-version**.
+
+You can run **Conda Code: Run Workspace Task** from the Command Palette instead.
 
 VS Code opens a task terminal. Conda Code delegates execution to:
 

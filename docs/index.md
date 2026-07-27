@@ -2,12 +2,6 @@
 
 Conda environments, packages, workspaces, and tasks in Visual Studio Code.
 
-:::{image} ../assets/conda-logo.png
-:alt: Conda Code logo
-:width: 128px
-:align: center
-:::
-
 Conda Code registers its own provider with the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
 It brings regular conda environments and project-aware
@@ -49,6 +43,19 @@ Open the quickstart
 
 ::::
 
+::::{card} See Conda Code in action
+:class-card: sd-shadow-sm
+
+:::{image} _static/conda-code-demo.gif
+:alt: Conda Code runs Create Environment from File for environment.yml and selects the resulting named environment for the project in Visual Studio Code.
+:::
+
+Run **Conda Code: Create Environment from File** from `environment.yml`. The
+resulting regular named environment appears as the selected project environment
+in the shared Python Environments UI. Python Environments supplies the views.
+Conda Code supplies its own manager and performs the conda operations.
+::::
+
 ## One provider for conda
 
 ::::{grid} 1 1 2 2
@@ -67,8 +74,8 @@ during discovery.
 :link: how-to/create-from-files
 :link-type: doc
 
-Create named environments from package specifications, `environment.yml`,
-CEP 23 explicit files, and supported conda lockfiles.
+Create and select named environments directly from `environment.yml`, CEP 23
+explicit files, and supported conda lockfiles.
 :::
 
 :::{grid-item-card} {octicon}`project` conda workspaces

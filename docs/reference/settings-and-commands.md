@@ -59,3 +59,31 @@ when `conda.toml`, `pixi.toml`, `pyproject.toml`, or `conda.lock` changes.
 
 Project creation inputs such as `environment.yml`, `explicit.txt`, and
 `conda-lock.yml` are not watched.
+
+### `Conda Code: Create Environment from File`
+
+Command ID: `conda-code.createEnvironmentFromFile`
+
+Creates a regular named environment from the supported file open in the active
+editor, then selects the result for that file's registered Python project. The
+file must be at the project root and use one of these exact names:
+
+- `environment.yml`
+- `environment.yaml`
+- `explicit.txt`
+- `conda-lock.yml`
+- `conda-lock.yaml`
+
+A {octicon}`plus` action appears in the editor title for those files. When
+several supported files exist, the active file is used without another prompt.
+See [](project-creation.md) for naming and exact-input behavior.
+
+### `Conda Code: Run Workspace Task`
+
+Command ID: `conda-code.runWorkspaceTask`
+
+Opens a picker containing the tasks declared by the active, confirmed
+conda-workspaces manifest, then runs the selected native VS Code task. A
+{octicon}`play` action appears in the editor title for `conda.toml`, `pixi.toml`,
+and `pyproject.toml`. Conda Code validates the active file before asking
+conda-workspaces for its tasks.
