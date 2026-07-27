@@ -86,6 +86,8 @@ class Disposable {
 const __state = {
   files: [],
   folders: [],
+  inputResponse: undefined,
+  inputs: [],
   progress: [],
   warnings: [],
   warningResponse: null,
@@ -103,7 +105,10 @@ const workspace = {
 };
 
 const window = {
-  showInputBox: async () => undefined,
+  showInputBox: async (options) => {
+    __state.inputs.push(options);
+    return __state.inputResponse;
+  },
   showQuickPick: async () => undefined,
   showWarningMessage: async (message, options, item) => {
     __state.warnings.push({ message, options, item });
@@ -156,6 +161,14 @@ interface VscodeStub {
   readonly __state: {
     files: VscodeUri[];
     folders: { readonly uri: VscodeUri }[];
+    inputResponse: string | undefined;
+    inputs: {
+      readonly title?: string;
+      readonly prompt?: string;
+      readonly placeHolder?: string;
+      readonly ignoreFocusOut?: boolean;
+      readonly validateInput?: (value: string) => string | undefined;
+    }[];
     progress: { readonly location: number; readonly title: string }[];
     warnings: {
       readonly message: string;
@@ -2870,6 +2883,8 @@ test('workspace packages identify direct and transitive dependencies', async (t)
 
 test('regular package operations use the environment owner', async (t) => {
   const { vscode, packageManager } = modules();
+  vscode.__state.inputResponse = undefined;
+  vscode.__state.inputs.length = 0;
   vscode.__state.progress = [];
   const prefix = path.resolve('/alternate/envs/demo');
   const ownerExecutable = '/alternate/bin/conda';
@@ -2888,13 +2903,15 @@ test('regular package operations use the environment owner', async (t) => {
     refresh: async () => undefined,
   } as unknown as CondaWorkspaceRouteManager;
   const operations: { readonly operation: string; readonly prefix: string }[] = [];
+  const installedSpecs: (readonly string[])[] = [];
   const owner = {
     listPrefixPackages: async (target: string) => {
       operations.push({ operation: 'list', prefix: target });
       return [];
     },
-    installPackages: async (target: string) => {
+    installPackages: async (target: string, specs: readonly string[]) => {
       operations.push({ operation: 'install', prefix: target });
+      installedSpecs.push([...specs]);
     },
     removePackages: async (target: string) => {
       operations.push({ operation: 'remove', prefix: target });
@@ -2919,14 +2936,49 @@ test('regular package operations use the environment owner', async (t) => {
     install: ['ruff'],
     uninstall: ['black'],
   });
+  assert.equal(vscode.__state.inputs.length, 0);
 
-  assert.deepEqual(executables, [ownerExecutable, ownerExecutable]);
+  vscode.__state.inputResponse = '  conda-forge::numpy >=2,<3  ';
+  await packages.manage(environment, { install: [], uninstall: [] });
+  vscode.__state.inputResponse = undefined;
+  await packages.manage(environment, { install: [], uninstall: [] });
+
+  assert.deepEqual(executables, [
+    ownerExecutable,
+    ownerExecutable,
+    ownerExecutable,
+    ownerExecutable,
+  ]);
   assert.deepEqual(operations, [
     { operation: 'remove', prefix },
     { operation: 'install', prefix },
     { operation: 'list', prefix },
+    { operation: 'install', prefix },
+    { operation: 'list', prefix },
   ]);
+  assert.deepEqual(installedSpecs, [['ruff'], ['conda-forge::numpy >=2,<3']]);
+  assert.equal(vscode.__state.inputs.length, 2);
+  const input = vscode.__state.inputs[0];
+  assert.ok(input);
+  assert.deepEqual(
+    {
+      ...input,
+      validateInput: undefined,
+    },
+    {
+      title: 'Manage a package in demo',
+      prompt: 'Enter one conda package specification to install or update',
+      placeHolder: 'numpy>=2 or conda-forge::numpy >=2,<3',
+      ignoreFocusOut: true,
+      validateInput: undefined,
+    },
+  );
+  assert.equal(input.validateInput?.('  '), 'Enter a conda package specification');
   assert.deepEqual(vscode.__state.progress, [
+    {
+      location: 15,
+      title: 'Updating packages in demo',
+    },
     {
       location: 15,
       title: 'Updating packages in demo',
@@ -2934,16 +2986,19 @@ test('regular package operations use the environment owner', async (t) => {
   ]);
 });
 
-test('regular package changes reject an environment without an owner', async (t) => {
+test('package changes validate environment ownership before prompting', async (t) => {
   const { vscode, packageManager } = modules();
+  vscode.__state.inputResponse = 'ruff';
+  vscode.__state.inputs.length = 0;
   const prefix = '/unknown/prefix';
   const environment = {
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
   } as PythonEnvironment;
+  const state: { currentEnvironment?: PythonEnvironment } = {};
   const routes = {
     getRoute: () => undefined,
-    getEnvironmentForPrefix: () => environment,
+    getEnvironmentForPrefix: () => state.currentEnvironment,
     getEnvironmentForRoute: () => environment,
     getCondaExecutableForPrefix: () => undefined,
     invalidateRegularDiscovery: () => undefined,
@@ -2959,9 +3014,18 @@ test('regular package changes reject an environment without an owner', async (t)
   t.after(() => packages.dispose());
 
   await assert.rejects(
+    packages.manage(environment, { install: [], uninstall: [] }),
+    /Conda Code does not own the environment prefix/,
+  );
+  assert.equal(vscode.__state.inputs.length, 0);
+
+  state.currentEnvironment = environment;
+  await assert.rejects(
     packages.manage(environment, { install: ['ruff'] }),
     /Conda Code does not know which conda installation owns/,
   );
+  assert.equal(vscode.__state.inputs.length, 0);
+  vscode.__state.inputResponse = undefined;
 });
 
 test('package cache clearing invalidates records without reporting removals', async (t) => {
