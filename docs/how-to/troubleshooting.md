@@ -63,9 +63,18 @@ reporting workspace, then refresh.
 
 ## Package changes are refused
 
-Workspace package removal and upgrade require direct manifest edits. Dependency
-addition is also refused for an environment composed from multiple features.
-See [](use-workspaces.md).
+Conda Code enables workspace changes only when conda-workspaces reports enough
+metadata to preserve the manifest:
+
+- Adding to a composed or zero-feature environment needs a complete snapshot.
+- Removal and update need the direct dependency's declaration location.
+- PyPI dependencies can be removed, but not updated.
+- Transitive dependencies remain read-only.
+- A PyPI package remains read-only when conda-pypi gave its installed conda
+  record a different name from the manifest declaration.
+
+The 0.7-compatible path can still add to an environment backed by exactly one
+feature. See [](use-workspaces.md).
 
 ## Quick Create reports multiple project inputs
 

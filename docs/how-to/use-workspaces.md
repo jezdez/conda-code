@@ -100,13 +100,24 @@ Quick Create also adds Python when the declaration needs it. See
 [](../reference/environment-operations.md) for how additional packages are
 targeted with different conda-workspaces capabilities.
 
-## Add conda dependencies
+## Manage dependencies
 
 Use **Manage Packages** to add a conda dependency. Conda Code records it through
-`conda workspace add` and updates the installed environment.
+`conda workspace add` in the selected environment and updates the installed
+environment.
 
-Package removal and update still require a manifest edit. The
-[](../reference/package-operations.md) lists the exact capabilities and limits.
+When conda-workspaces reports declaration locations, you can also remove a
+direct dependency or update a direct conda dependency. Adding an existing
+direct conda dependency updates its original declaration rather than creating
+an environment-local duplicate. Conda Code asks before changing a top-level
+default or feature declaration, including a platform-qualified declaration in
+either shared scope.
+
+Transitive dependencies, PyPI updates, and PyPI packages whose installed name
+does not match their declaration remain read-only. If an operation is refused,
+edit the manifest, apply the workspace change, then run **Conda Code: Refresh
+Environments**. The [](../reference/package-operations.md) lists the exact
+capabilities and limits.
 
 ## Clean an installed environment
 

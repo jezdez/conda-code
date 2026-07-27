@@ -511,8 +511,21 @@ test('mutation methods build scoped, non-interactive commands', async () => {
   await client.cleanEnvironment(manifest, 'test');
   await client.addDependencies(manifest, ['pytest>=9'], {
     noInstall: true,
-    environment: 'test',
+    feature: 'test',
   });
+  await client.removeDependencies(manifest, ['ruff'], {
+    environment: 'test',
+    platform: 'linux-64',
+    pypi: true,
+  });
+  await client.updateDependencies(manifest, ['numpy>=2'], {
+    feature: 'test',
+    platform: 'linux-64',
+  });
+  assert.throws(
+    () => client.updateDependencies(manifest, ['build>=1'], { pypi: true }),
+    /does not support PyPI dependencies/,
+  );
 
   assert.deepEqual(
     runner.calls.map(({ args }) => args),
@@ -526,11 +539,40 @@ test('mutation methods build scoped, non-interactive commands', async () => {
         'add',
         '--yes',
         '--json',
-        '--environment',
+        '--feature',
         'test',
         '--no-install',
         '--',
         'pytest>=9',
+      ],
+      [
+        'workspace',
+        '--file',
+        manifest,
+        'remove',
+        '--yes',
+        '--json',
+        '--pypi',
+        '--environment',
+        'test',
+        '--platform',
+        'linux-64',
+        '--',
+        'ruff',
+      ],
+      [
+        'workspace',
+        '--file',
+        manifest,
+        'update',
+        '--yes',
+        '--json',
+        '--feature',
+        'test',
+        '--platform',
+        'linux-64',
+        '--',
+        'numpy>=2',
       ],
     ],
   );
