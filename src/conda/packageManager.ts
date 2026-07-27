@@ -7,7 +7,14 @@ import {
   PythonEnvironment,
   PythonEnvironmentApi,
 } from '@vscode/python-environments';
-import { Disposable, EventEmitter, LogOutputChannel, ThemeIcon } from 'vscode';
+import {
+  Disposable,
+  EventEmitter,
+  LogOutputChannel,
+  ProgressLocation,
+  ThemeIcon,
+  window,
+} from 'vscode';
 
 import { diffPackages } from './changes';
 import { CondaClient, CondaPackageRecord } from './conda';
@@ -64,40 +71,48 @@ export class CondaPackageManager implements PackageManager, Disposable {
 
     const current = this.requireOwnedEnvironment(environment);
     const route = this.routes.getRoute(current);
-    if (route === undefined) {
-      const conda = this.condaForPrefix(current.environmentPath.fsPath, true);
-      if (uninstall.length > 0) {
-        await conda.removePackages(current.environmentPath.fsPath, uninstall);
-      }
-      if (install.length > 0) {
-        await conda.installPackages(current.environmentPath.fsPath, install, {
-          upgrade: options.upgrade,
-        });
-      }
-    } else {
-      if (options.upgrade === true && install.length > 0) {
-        throw new Error(
-          `Conda workspace package upgrades are not supported. ` +
-            `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
-        );
-      }
-      await this.manageWorkspace(route, uninstall, install);
-    }
+    await window.withProgress(
+      {
+        location: ProgressLocation.Notification,
+        title: `Updating packages in ${current.displayName}`,
+      },
+      async () => {
+        if (route === undefined) {
+          const conda = this.condaForPrefix(current.environmentPath.fsPath, true);
+          if (uninstall.length > 0) {
+            await conda.removePackages(current.environmentPath.fsPath, uninstall);
+          }
+          if (install.length > 0) {
+            await conda.installPackages(current.environmentPath.fsPath, install, {
+              upgrade: options.upgrade,
+            });
+          }
+        } else {
+          if (options.upgrade === true && install.length > 0) {
+            throw new Error(
+              `Conda workspace package upgrades are not supported. ` +
+                `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
+            );
+          }
+          await this.manageWorkspace(route, uninstall, install);
+        }
 
-    if (route === undefined) {
-      this.routes.invalidateRegularDiscovery();
-    }
-    await this.routes.refresh(route?.projectUri ?? current.environmentPath);
-    const refreshedEnvironment =
-      route === undefined
-        ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
-        : this.routes.getEnvironmentForRoute(route);
-    if (refreshedEnvironment !== undefined) {
-      if (refreshedEnvironment.envId.id !== current.envId.id) {
-        this.packagesByEnvironment.delete(current.envId.id);
-      }
-      await this.refresh(refreshedEnvironment);
-    }
+        if (route === undefined) {
+          this.routes.invalidateRegularDiscovery();
+        }
+        await this.routes.refresh(route?.projectUri ?? current.environmentPath);
+        const refreshedEnvironment =
+          route === undefined
+            ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
+            : this.routes.getEnvironmentForRoute(route);
+        if (refreshedEnvironment !== undefined) {
+          if (refreshedEnvironment.envId.id !== current.envId.id) {
+            this.packagesByEnvironment.delete(current.envId.id);
+          }
+          await this.refresh(refreshedEnvironment);
+        }
+      },
+    );
   }
 
   // Python Environments 1.36 renders this returned list, while its published

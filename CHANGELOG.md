@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Show a VS Code progress notification while package changes are applied
+
 ## 0.5.0
 
 - Create and select regular named environments directly from supported project

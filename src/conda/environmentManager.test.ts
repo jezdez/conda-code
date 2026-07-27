@@ -78,7 +78,7 @@ class Disposable {
   }
 }
 
-const __state = { files: [], folders: [] };
+const __state = { files: [], folders: [], progress: [] };
 const workspace = {
   findFiles: async (pattern) =>
     __state.files.filter((uri) => pattern.includes(path.basename(uri.fsPath))),
@@ -94,9 +94,24 @@ const workspace = {
 const window = {
   showInputBox: async () => undefined,
   showQuickPick: async () => undefined,
+  withProgress: async (options, task) => {
+    __state.progress.push(options);
+    return task({ report: () => undefined });
+  },
 };
 
-module.exports = { __state, Disposable, EventEmitter, ThemeIcon, Uri, window, workspace };
+const ProgressLocation = { Notification: 15 };
+
+module.exports = {
+  __state,
+  Disposable,
+  EventEmitter,
+  ProgressLocation,
+  ThemeIcon,
+  Uri,
+  window,
+  workspace,
+};
 `;
 
 registerHooks({
@@ -126,6 +141,7 @@ interface VscodeStub {
   readonly __state: {
     files: VscodeUri[];
     folders: { readonly uri: VscodeUri }[];
+    progress: { readonly location: number; readonly title: string }[];
   };
 }
 
@@ -2410,11 +2426,13 @@ test('workspace packages identify direct and transitive dependencies', async (t)
 
 test('regular package operations use the environment owner', async (t) => {
   const { vscode, packageManager } = modules();
+  vscode.__state.progress = [];
   const prefix = path.resolve('/alternate/envs/demo');
   const ownerExecutable = '/alternate/bin/conda';
   const environment = {
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
+    displayName: 'demo',
   } as PythonEnvironment;
   const routes = {
     getRoute: () => undefined,
@@ -2463,6 +2481,12 @@ test('regular package operations use the environment owner', async (t) => {
     { operation: 'remove', prefix },
     { operation: 'install', prefix },
     { operation: 'list', prefix },
+  ]);
+  assert.deepEqual(vscode.__state.progress, [
+    {
+      location: 15,
+      title: 'Updating packages in demo',
+    },
   ]);
 });
 
