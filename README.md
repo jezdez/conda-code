@@ -72,10 +72,11 @@ check regular environment and workspace discovery.
 - **Creation inputs:** Create named environments from package specifications,
   `environment.yml`, [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit
   files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
-- **conda workspaces:** Discover, install, and manage conda-workspaces
+- **conda workspaces:** Discover, install, activate, and manage conda-workspaces
   environments, then run declared tasks from the manifest editor through native
-  VS Code Tasks. Conda Code detects richer workspace snapshots and declaration
-  locations when the installed conda-workspaces provides them.
+  VS Code Tasks. Shell activation targets the exact installed workspace prefix.
+  Conda Code detects richer workspace snapshots and declaration locations when
+  the installed conda-workspaces provides them.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix.
 - **Ecosystem compatibility:** Include

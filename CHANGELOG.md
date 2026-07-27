@@ -15,6 +15,8 @@
 - Show a VS Code progress notification while package changes are applied
 - Prompt for one complete conda package specification when Python Environments
   opens **Manage Packages** without an explicit package change
+- Expose conda shell activation and deactivation for workspace environments,
+  targeting each environment's exact installed prefix
 
 ## 0.5.0
 
