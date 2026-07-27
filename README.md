@@ -74,8 +74,8 @@ check regular environment and workspace discovery.
   files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
 - **conda workspaces:** Discover, install, and manage conda-workspaces
   environments, then run declared tasks from the manifest editor through native
-  VS Code Tasks. Conda Code uses complete workspace snapshots when the installed
-  conda-workspaces provides them.
+  VS Code Tasks. Conda Code detects richer workspace snapshots and declaration
+  locations when the installed conda-workspaces provides them.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix.
 - **Ecosystem compatibility:** Include
@@ -105,8 +105,9 @@ Optional integrations:
 - conda-lockfiles 0.2 or newer for conda lockfile creation inputs
 - conda 26.5 or newer for workspace PyPI dependencies
 
-Complete conda-workspaces snapshots are detected at runtime. The 0.7 integration
-remains available when they are not supported.
+Newer conda-workspaces capabilities are detected at runtime. The 0.7 integration
+remains available when complete snapshots or dependency declaration locations
+are not reported.
 
 Set `conda-code.condaExecutable` when the primary conda is not available through
 `CONDA_EXE`, the Python extension's `python.condaPath` setting, or `PATH`.

@@ -25,8 +25,10 @@ commands.
 
 Conda Code detects optional conda-workspaces capabilities from command output.
 A complete workspace snapshot makes discovery faster and allows dependencies to
-be added directly to a selected environment. The 0.7-compatible discovery and
-package-add path remains available when the snapshot is absent.
+be added directly to a selected environment. Structured dependency declaration
+locations allow direct dependency removal and direct conda dependency updates.
+The 0.7-compatible discovery and single-feature package-add path remains
+available when those fields are absent.
 
 ## Workspace PyPI dependencies
 
@@ -48,8 +50,9 @@ conda config --set channel_priority flexible
 
 See the [conda-pypi setup](https://conda.github.io/conda-pypi/quickstart/).
 
-Conda Code shows the resulting conda records. Its package changes target the
-workspace's conda dependencies.
+Conda Code shows the resulting conda records. A direct PyPI dependency can be
+removed when its installed name matches its declaration. PyPI dependency
+updates are not supported.
 
 ## conda-lock inputs
 

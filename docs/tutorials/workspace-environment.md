@@ -51,6 +51,10 @@ conda workspace list
 ```
 
 The package view labels packages as direct or transitive dependencies.
+When conda-workspaces reports dependency declaration locations, you can also
+remove a direct dependency or update a direct conda dependency from this view.
+Conda Code asks before changing a declaration outside the selected
+environment's private dependency table.
 
 ## Declare a task
 

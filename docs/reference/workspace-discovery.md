@@ -47,7 +47,8 @@ Skipped manifests contribute neither environments nor tasks.
 
 Each published workspace environment records its manifest, project, environment
 name, features, direct dependencies, installed packages, prefix, and Python
-path.
+path. A complete snapshot can also report the exact environment, feature,
+platform, or top-level default declaration for a direct dependency.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code
