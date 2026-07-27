@@ -9,6 +9,18 @@
 | Workspace with dependency declaration locations  | Yes  | Yes            | Direct conda | Direct conda or PyPI |
 | Conflicted workspace prefix                      | No   | No             | No           | No                   |
 
+## Start a package change
+
+When Python Environments opens **Manage Packages** without supplying a package
+change, Conda Code asks for one conda package specification. Enter one complete
+MatchSpec, such as `numpy`, `numpy>=2`, or `conda-forge::numpy >=2,<3`. Conda
+Code treats the complete response as one specification and does not split
+commas or whitespace into multiple packages.
+
+Cancel the prompt to leave the environment unchanged. Blank input is not
+accepted. An entered specification follows the same regular or workspace
+routing described below.
+
 ## Regular package records
 
 Conda Code runs `conda list --prefix <prefix> --json --no-pip` and omits records
