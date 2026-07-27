@@ -2700,7 +2700,7 @@ test('workspace prefixes stay excluded through filesystem aliases', async (t) =>
   const environments = await manager.getEnvironments('all');
   assert.equal(environments.length, 1);
   assert.equal(environments[0]?.environmentPath.fsPath, prefix);
-  assert.equal(environments[0]?.description, 'conda workspace environment');
+  assert.equal(environments[0]?.description, 'workspace environment');
 });
 
 test('workspace environments activate by prefix from the current conda root', async (t) => {

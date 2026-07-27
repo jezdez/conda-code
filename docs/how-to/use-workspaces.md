@@ -1,7 +1,7 @@
-# Use conda workspaces
+# Use conda-workspaces
 
-This is the optional conda-workspaces integration. For regular conda projects,
-create a named environment from `environment.yml` instead.
+This is the optional conda-workspaces integration. If you only need a regular
+conda environment, create a named environment from `environment.yml` instead.
 
 ::::{card} Run a workspace task from its manifest
 :class-card: sd-shadow-sm
@@ -26,7 +26,8 @@ Four components contribute to the workspace experience:
 :::{grid-item-card} {octicon}`project` Python Environments
 
 Owns the shared **Python Projects** and **Environment Managers** views. Register
-the project here, then select environments from the shared tree.
+the workspace folder here as a Python project, then select environments from
+the shared tree.
 :::
 
 :::{grid-item-card} {octicon}`plug` Conda Code
@@ -49,11 +50,11 @@ Code hands it the selected `conda task` invocation.
 
 ::::
 
-## Register the project
+## Register the workspace
 
-Open the Python Environments project creator flow and choose **Find conda
-workspace projects**. Select one or more unregistered candidates. The finder
-runs only when invoked.
+Open the Python Environments project creator flow and choose **Find
+workspaces**. Select one or more unregistered candidates. The finder runs only
+when invoked.
 
 Supported candidate names are:
 
@@ -62,8 +63,8 @@ Supported candidate names are:
 - `pyproject.toml`
 
 Conda Code validates each selected manifest with structured `conda workspace
-info` output and registers only valid manifest directories. A matching filename
-alone is not enough.
+info` output and registers only valid manifest directories as Python projects.
+A matching filename alone is not enough.
 
 ## Run a declared task
 

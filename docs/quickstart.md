@@ -1,7 +1,7 @@
 # Quickstart
 
 This guide installs Conda Code, selects its provider, and verifies regular
-environment discovery. The final step adds optional conda workspace support.
+environment discovery. The final step adds optional conda-workspaces support.
 
 ## 1. Prepare conda
 
@@ -61,7 +61,7 @@ after creation.
 Run **Conda Code: Refresh Environments** from the Command Palette after an
 external change that is not picked up automatically.
 
-## 5. Optional: Check a conda workspace
+## 5. Optional: Check a workspace
 
 Install conda-workspaces in the same base environment as the primary conda.
 Follow the

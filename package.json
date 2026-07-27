@@ -98,7 +98,7 @@
           },
           "file": {
             "type": "string",
-            "description": "Workspace-folder-relative path to the conda-workspaces manifest."
+            "description": "Workspace-folder-relative path to the workspace manifest."
           }
         },
         "when": "processExecutionSupported"

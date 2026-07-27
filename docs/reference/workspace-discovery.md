@@ -14,7 +14,7 @@ that selected manifest contributes tasks. See [](workspace-tasks.md).
 
 The search excludes `.git`, `.conda`, `.pixi`, and `node_modules`.
 
-## Project requirement
+## Python project registration
 
 The candidate directory must be an exact Python project root registered with
 Python Environments. A manifest elsewhere in the VS Code window is ignored.
@@ -45,10 +45,10 @@ Skipped manifests contribute neither environments nor tasks.
 
 ## Prefix routing
 
-Each published workspace environment records its manifest, project, environment
-name, features, direct dependencies, installed packages, prefix, and Python
-path. A complete snapshot can also report the exact environment, feature,
-platform, or top-level default declaration for a direct dependency.
+Each published workspace environment records its manifest, Python project,
+environment name, features, direct dependencies, installed packages, prefix,
+and Python path. A complete snapshot can also report the exact environment,
+feature, platform, or top-level default declaration for a direct dependency.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code
@@ -63,9 +63,9 @@ Conda Code watches:
 - `pyproject.toml`
 - `conda.lock`
 
-File changes and project-scoped refreshes inspect only the affected registered
-workspaces. Conda Code still reconciles the full published environment set after
-that inspection.
+File changes and refreshes scoped to a registered Python project inspect only
+the affected workspaces. Conda Code still reconciles the full published
+environment set after that inspection.
 
 The manual **Conda Code: Refresh Environments** command clears package data and
 refreshes all environment and task sources. It also starts forced

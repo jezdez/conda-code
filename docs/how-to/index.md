@@ -33,7 +33,7 @@ Use `environment.yml`, an explicit package list, or a conda-lock file.
 Create, remove, select, and modify regular conda environments.
 :::
 
-:::{grid-item-card} {octicon}`project` Use conda workspaces
+:::{grid-item-card} {octicon}`project` Use conda-workspaces
 :link: use-workspaces
 :link-type: doc
 
@@ -64,7 +64,7 @@ Select the Conda Code provider <select-provider>
 Configure the conda executable <configure-conda>
 Create from project files <create-from-files>
 Manage environments and packages <manage-environments>
-Use conda workspaces <use-workspaces>
+Use conda-workspaces <use-workspaces>
 Coexist with Pixi Code <coexist-with-pixi-code>
 Troubleshoot Conda Code <troubleshooting>
 ```

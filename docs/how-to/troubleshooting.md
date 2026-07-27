@@ -49,7 +49,7 @@ Check all of the following:
 - The manifest directory is registered as a Python project.
 - `conda workspace info --json` succeeds for the manifest.
 - The environment is installed.
-- The manifest is not a Pixi project ignored because Pixi Code is installed.
+- The manifest is not a Pixi workspace ignored because Pixi Code is installed.
 - No other workspace manifest reports the same prefix.
 
 Only installed workspace environments appear. Use **Python Envs: Create
@@ -82,8 +82,7 @@ The project root contains more than one recognized environment input. Run
 **Python Envs: Create Environment** and choose one, or remove the inputs that do
 not apply.
 
-An existing discovered conda workspace takes precedence and does not use these
-files.
+An existing discovered workspace takes precedence and does not use these files.
 
 ## Additional creation packages are refused
 

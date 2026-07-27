@@ -7,7 +7,7 @@ execution.
 ## conda-workspaces
 
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/) defines
-project manifests, declared environments, features, tasks, and workspace
+workspace manifests, declared environments, features, tasks, and workspace
 commands. Conda Code provides VS Code integration for installed workspace
 environments and declared tasks.
 
@@ -41,9 +41,9 @@ additional exact environment formats with `conda`. When it is installed, Conda
 Code can pass project-root `conda-lock.yml` and `conda-lock.yaml` files to
 `conda create`.
 
-The conda-lockfiles plugin also supports `pixi.lock`. Conda Code does not offer that file
-as a standalone environment input. Pixi projects stay with Pixi Code when it is
-installed, or with conda-workspaces otherwise.
+The conda-lockfiles plugin also supports `pixi.lock`. Conda Code does not offer
+that file as a standalone environment input. Pixi workspaces stay with Pixi Code
+when it is installed, or with conda-workspaces otherwise.
 
 Conda Code does not parse or synchronize those files. It delegates the format
 to `conda` and manages the result as a regular named environment.
@@ -82,15 +82,15 @@ with `conda exec --list` and `conda exec --clean`.
 ## Pixi Code
 
 [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
-is the Python Environments provider for Pixi projects. It is closer to Conda
+is the Python Environments provider for Pixi workspaces. It is closer to Conda
 Code than a Python-only environment manager because Pixi also manages conda
-packages and project environments.
+packages and workspace environments.
 
 The extensions can be installed together. When Pixi Code is present, Conda
 Code leaves `pixi.toml`, `[tool.pixi]`, and `.pixi/envs` to Pixi Code while
-continuing to handle regular conda environments and `conda.toml` projects.
+continuing to handle regular conda environments and `conda.toml` workspaces.
 That rule also applies to task discovery. When Pixi Code is installed, Conda
-Code does not publish tasks from `pixi.toml` or a `pyproject.toml` project with
+Code does not publish tasks from `pixi.toml` or a `pyproject.toml` workspace with
 a `[tool.pixi]` table.
 
 ## Python Environments

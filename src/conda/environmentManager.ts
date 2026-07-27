@@ -255,7 +255,7 @@ export class CondaEnvironmentManager
 {
   public readonly name = 'conda';
   public readonly displayName = 'Conda Code';
-  public readonly description = 'Conda environments and conda workspace environments';
+  public readonly description = 'Regular conda environments and workspace environments';
   public readonly iconPath = new ThemeIcon('symbol-folder');
   public readonly preferredPackageManagerId: string;
   public readonly log?: LogOutputChannel;
@@ -316,7 +316,7 @@ export class CondaEnvironmentManager
       description: 'Create a conda environment for this project',
       detail:
         'Uses environment.yml or another supported project file when present. ' +
-        'Otherwise creates a conda workspace.',
+        'Otherwise creates a workspace.',
     };
   }
 
@@ -353,7 +353,7 @@ export class CondaEnvironmentManager
     const definitionFiles = await this.findProjectDefinitionFiles(projectUri);
     const canCreateWorkspace = await this.canCreateWorkspace(projectUri);
     if (options.quickCreate === true && definitionFiles.length === 0 && !canCreateWorkspace) {
-      throw new Error(`Conda Code does not create a conda workspace in ${projectUri.fsPath}`);
+      throw new Error(`Conda Code does not create a workspace in ${projectUri.fsPath}`);
     }
     const choice = await this.selectCreateChoice(
       options.quickCreate,
@@ -412,7 +412,7 @@ export class CondaEnvironmentManager
     await this.ensureInitialized(true);
     const prefix = environment.environmentPath.fsPath;
     if (this.routes.isConflictedPrefix(prefix)) {
-      throw new Error(`Multiple conda workspace manifests claim the prefix ${prefix}`);
+      throw new Error(`Multiple workspace manifests claim the prefix ${prefix}`);
     }
     const current = this.getEnvironmentForPrefix(prefix);
     if (current === undefined) {
@@ -1502,7 +1502,7 @@ export class CondaEnvironmentManager
       displayPath: prefix,
       version,
       environmentPath: Uri.file(prefix),
-      description: 'conda workspace environment',
+      description: 'workspace environment',
       tooltip: manifestUri.fsPath,
       iconPath: new ThemeIcon(environment.python === null ? 'warning' : 'python'),
       execInfo: {
@@ -1516,7 +1516,7 @@ export class CondaEnvironmentManager
         description: projectUri.fsPath,
       },
       ...(environment.python === null
-        ? { error: 'Python is not installed in this conda workspace environment' }
+        ? { error: 'Python is not installed in this workspace environment' }
         : {}),
     };
     return this.cachedEnvironment(info, [
@@ -1618,7 +1618,7 @@ export class CondaEnvironmentManager
         environment,
       })),
       {
-        placeHolder: 'Select a declared conda workspace environment to install',
+        placeHolder: 'Select a declared workspace environment to install',
       },
     );
     return selected?.environment;
@@ -1658,8 +1658,8 @@ export class CondaEnvironmentManager
     }
     if (canCreateWorkspace) {
       choices.push({
-        label: 'Conda workspace',
-        description: 'Create conda.toml and a managed project environment',
+        label: 'Workspace',
+        description: 'Create conda.toml and a managed workspace environment',
         choice: { kind: 'workspace' },
       });
     }
