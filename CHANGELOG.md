@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
 
 - Use the complete conda-workspaces snapshot when available, reducing workspace
   environment discovery to one conda process and reusing its package records
