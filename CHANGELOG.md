@@ -17,6 +17,8 @@
   opens **Manage Packages** without an explicit package change
 - Expose conda shell activation and deactivation for workspace environments,
   targeting each environment's exact installed prefix
+- Add **Find conda workspace projects** to the Python Environments project
+  creator flow, validating selected manifests before registration
 
 ## 0.5.0
 

@@ -51,9 +51,9 @@ Code hands it the selected `conda task` invocation.
 
 ## Register the project
 
-Add the manifest directory as a Python project in the Python Environments view.
-Conda Code does not treat every matching file in the VS Code window as a
-project.
+Open the Python Environments project creator flow and choose **Find conda
+workspace projects**. Select one or more unregistered candidates. The finder
+runs only when invoked.
 
 Supported candidate names are:
 
@@ -61,9 +61,9 @@ Supported candidate names are:
 - `pixi.toml`
 - `pyproject.toml`
 
-Conda Code validates the candidate with structured `conda workspace info`
-output, preferring the complete `--json --packages` snapshot when available. A
-matching filename alone is not enough.
+Conda Code validates each selected manifest with structured `conda workspace
+info` output and registers only valid manifest directories. A matching filename
+alone is not enough.
 
 ## Run a declared task
 
