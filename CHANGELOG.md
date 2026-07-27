@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0
+
+- Create and select regular named environments directly from supported project
+  files through an editor-title action with native progress reporting
+- Run tasks declared by a confirmed conda-workspaces manifest through an
+  editor-title action and native VS Code Tasks
+- Mark workspace dependencies as direct or transitive and list direct
+  dependencies first
+- Add focused light-theme demos for regular environment creation and workspace
+  task execution, with clearer documentation of how Conda Code, Python
+  Environments, conda-workspaces, and VS Code Tasks fit together
+
 ## 0.4.0
 
 - Exclude conda-exec cache prefixes from regular discovery, explicit resolution,

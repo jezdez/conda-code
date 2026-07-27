@@ -12,7 +12,7 @@ immutable GitHub Release through a tag-gated GitHub Actions workflow.
 4. Create and push a tag that exactly matches `package.json`:
 
    ```console
-   RELEASE_VERSION=0.4.0
+   RELEASE_VERSION=0.5.0
    git tag -s "${RELEASE_VERSION}" -m "Conda Code ${RELEASE_VERSION}"
    git push origin "${RELEASE_VERSION}"
    ```
@@ -31,3 +31,7 @@ Do not push a release tag until Marketplace publishing access has been verified.
 If publishing is interrupted, use **Re-run failed jobs** in GitHub Actions. The
 workflow reuses the uploaded VSIX and treats an already-published Marketplace
 version as successful.
+
+If draft creation itself is cancelled after the draft exists, inspect the
+GitHub Release before rerunning the job. Remove only that incomplete draft, then
+rerun the failed job. The workflow refuses to replace an existing release.
