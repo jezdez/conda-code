@@ -39,12 +39,46 @@ export interface WorkspaceEnvironmentInfo {
   readonly name: string;
   readonly prefix: string;
   readonly condaDependencies: Readonly<Record<string, string>>;
+  readonly pypiDependencies: readonly string[];
 }
 
 export interface WorkspacePackage {
   readonly name: string;
   readonly version: string;
   readonly build: string;
+}
+
+export interface WorkspaceDependency {
+  readonly name: string;
+  readonly pypi: boolean;
+  readonly table?: string;
+  readonly location?: WorkspaceDependencyLocation;
+}
+
+export interface WorkspaceDependencyLocation {
+  readonly environment?: string;
+  readonly feature?: string;
+  readonly platform?: string;
+}
+
+export interface WorkspaceSnapshotResolution {
+  readonly platform: string;
+  readonly subdir: string;
+  readonly dependencies: readonly WorkspaceDependency[];
+}
+
+export interface WorkspaceSnapshotEnvironment {
+  readonly name: string;
+  readonly features: readonly string[];
+  readonly platforms: readonly string[];
+  readonly prefix: string;
+  readonly installed: boolean;
+  readonly resolutions: readonly WorkspaceSnapshotResolution[];
+  readonly packages: readonly WorkspacePackage[];
+}
+
+export interface WorkspaceSnapshot extends WorkspaceInfo {
+  readonly environments: readonly WorkspaceSnapshotEnvironment[];
 }
 
 export interface WorkspaceQuickstartResult {
@@ -146,6 +180,14 @@ function optionalString(record: JsonRecord, key: string, path: string): string |
   return expectString(value, `${path}.${key}`);
 }
 
+function optionalNullableString(record: JsonRecord, key: string, path: string): string | undefined {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  return expectString(value, `${path}.${key}`);
+}
+
 function optionalStringArray(
   record: JsonRecord,
   key: string,
@@ -234,21 +276,112 @@ export function parseWorkspaceEnvironmentInfo(text: string): WorkspaceEnvironmen
     name: expectString(value.name, `${path}.name`),
     prefix: expectString(value.prefix, `${path}.prefix`),
     condaDependencies: expectStringRecord(value.conda_dependencies, `${path}.conda_dependencies`),
+    pypiDependencies: Object.keys(
+      expectRecord(value.pypi_dependencies, `${path}.pypi_dependencies`),
+    ),
+  };
+}
+
+function parseWorkspacePackage(value: unknown, path: string): WorkspacePackage {
+  const record = expectRecord(value, path);
+  return {
+    name: expectString(record.name, `${path}.name`),
+    version: expectString(record.version, `${path}.version`),
+    build: expectString(record.build, `${path}.build`),
   };
 }
 
 export function parseWorkspacePackages(text: string): readonly WorkspacePackage[] {
   return expectArray(parseJson(text, 'conda workspace list'), 'conda workspace list').map(
-    (item, index) => {
-      const path = `conda workspace list[${index}]`;
-      const value = expectRecord(item, path);
-      return {
-        name: expectString(value.name, `${path}.name`),
-        version: expectString(value.version, `${path}.version`),
-        build: expectString(value.build, `${path}.build`),
-      };
-    },
+    (item, index) => parseWorkspacePackage(item, `conda workspace list[${index}]`),
   );
+}
+
+function parseSnapshotDependencies(
+  value: unknown,
+  path: string,
+  pypi: boolean,
+): WorkspaceDependency[] {
+  return Object.entries(expectRecord(value, path)).map(([name, item]) => {
+    const dependencyPath = `${path}.${name}`;
+    const dependency = expectRecord(item, dependencyPath);
+    const provenance = expectRecord(dependency.provenance, `${dependencyPath}.provenance`);
+    const rawLocation = provenance.location;
+    const location =
+      rawLocation === undefined
+        ? undefined
+        : (() => {
+            const locationPath = `${dependencyPath}.provenance.location`;
+            const value = expectRecord(rawLocation, locationPath);
+            const environment = optionalNullableString(value, 'environment', locationPath);
+            const feature = optionalNullableString(value, 'feature', locationPath);
+            const platform = optionalNullableString(value, 'platform', locationPath);
+            if (environment !== undefined && feature !== undefined) {
+              throw new Error(`${locationPath} cannot select both an environment and a feature`);
+            }
+            return {
+              ...(environment === undefined ? {} : { environment }),
+              ...(feature === undefined ? {} : { feature }),
+              ...(platform === undefined ? {} : { platform }),
+            };
+          })();
+    return {
+      name,
+      pypi,
+      table: expectString(provenance.table, `${dependencyPath}.provenance.table`),
+      ...(location === undefined ? {} : { location }),
+    };
+  });
+}
+
+export function parseWorkspaceSnapshot(text: string): WorkspaceSnapshot {
+  const path = 'conda workspace info';
+  const value = expectRecord(parseJson(text, path), path);
+  const environmentDetails = expectArray(value.environment_details, `${path}.environment_details`);
+  return {
+    manifest: expectString(value.manifest, `${path}.manifest`),
+    name: expectString(value.name, `${path}.name`),
+    environments: environmentDetails.map((item, environmentIndex) => {
+      const environmentPath = `${path}.environment_details[${environmentIndex}]`;
+      const environment = expectRecord(item, environmentPath);
+      const resolutions = expectArray(
+        environment.resolutions,
+        `${environmentPath}.resolutions`,
+      ).map((resolutionItem, resolutionIndex) => {
+        const resolutionPath = `${environmentPath}.resolutions[${resolutionIndex}]`;
+        const resolution = expectRecord(resolutionItem, resolutionPath);
+        return {
+          platform: expectString(resolution.platform, `${resolutionPath}.platform`),
+          subdir: expectString(resolution.subdir, `${resolutionPath}.subdir`),
+          dependencies: [
+            ...parseSnapshotDependencies(
+              resolution.conda_dependencies,
+              `${resolutionPath}.conda_dependencies`,
+              false,
+            ),
+            ...parseSnapshotDependencies(
+              resolution.pypi_dependencies,
+              `${resolutionPath}.pypi_dependencies`,
+              true,
+            ),
+          ],
+        };
+      });
+      const packages = expectArray(environment.packages, `${environmentPath}.packages`).map(
+        (packageItem, packageIndex) =>
+          parseWorkspacePackage(packageItem, `${environmentPath}.packages[${packageIndex}]`),
+      );
+      return {
+        name: expectString(environment.name, `${environmentPath}.name`),
+        features: expectStringArray(environment.features, `${environmentPath}.features`),
+        platforms: expectStringArray(environment.platforms, `${environmentPath}.platforms`),
+        prefix: expectString(environment.prefix, `${environmentPath}.prefix`),
+        installed: expectBoolean(environment.installed, `${environmentPath}.installed`),
+        resolutions,
+        packages,
+      };
+    }),
+  };
 }
 
 export function parseWorkspaceQuickstartResult(text: string): WorkspaceQuickstartResult {

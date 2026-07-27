@@ -23,7 +23,7 @@ import {
   CondaWorkspaceRouteManager,
   dependencyFeature,
 } from './workspaceRouting';
-import { CondaWorkspacesClient, WorkspacePackage } from './workspaces';
+import { CondaWorkspacesClient, WorkspaceDependency, WorkspacePackage } from './workspaces';
 
 export interface CondaPackageManagerOptions {
   readonly log?: LogOutputChannel;
@@ -45,6 +45,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public readonly log?: LogOutputChannel;
 
   private readonly packagesByEnvironment = new Map<string, readonly Package[]>();
+  private readonly cachedEnvironments = new Map<string, PythonEnvironment>();
   private readonly onDidChangePackagesEmitter = new EventEmitter<DidChangePackagesEventArgs>();
 
   public readonly onDidChangePackages = this.onDidChangePackagesEmitter.event;
@@ -109,7 +110,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
           if (refreshedEnvironment.envId.id !== current.envId.id) {
             this.packagesByEnvironment.delete(current.envId.id);
           }
-          await this.refresh(refreshedEnvironment);
+          await this.refreshPackages(refreshedEnvironment, false);
         }
       },
     );
@@ -135,7 +136,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
 
     if (options.skipCache === true) {
-      return this.loadAndCachePackages(currentEnvironment);
+      return this.loadAndCachePackages(currentEnvironment, true);
     }
 
     const key = currentEnvironment.envId.id;
@@ -149,11 +150,37 @@ export class CondaPackageManager implements PackageManager, Disposable {
 
   public async clearCache(): Promise<void> {
     this.packagesByEnvironment.clear();
+    this.cachedEnvironments.clear();
+  }
+
+  public resetWorkspaceCapabilities(): void {
+    this.workspaces.resetCapabilityCache();
+  }
+
+  public async refreshCachedPackages(): Promise<void> {
+    for (const [key, environment] of [...this.cachedEnvironments]) {
+      const current = this.routes.getEnvironmentForPrefix(environment.environmentPath.fsPath);
+      if (current === undefined) {
+        this.packagesByEnvironment.delete(key);
+        this.cachedEnvironments.delete(key);
+        continue;
+      }
+      if (current.envId.id !== key) {
+        const previous = this.packagesByEnvironment.get(key);
+        if (previous !== undefined) {
+          this.packagesByEnvironment.set(current.envId.id, previous);
+        }
+        this.packagesByEnvironment.delete(key);
+        this.cachedEnvironments.delete(key);
+      }
+      await this.refreshPackages(current, false);
+    }
   }
 
   public dispose(): void {
     this.onDidChangePackagesEmitter.dispose();
     this.packagesByEnvironment.clear();
+    this.cachedEnvironments.clear();
   }
 
   private requireOwnedEnvironment(environment: PythonEnvironment): PythonEnvironment {
@@ -177,9 +204,12 @@ export class CondaPackageManager implements PackageManager, Disposable {
       : undefined;
   }
 
-  private async refreshPackages(environment: PythonEnvironment): Promise<Package[]> {
+  private async refreshPackages(
+    environment: PythonEnvironment,
+    refreshWorkspaceRoute = true,
+  ): Promise<Package[]> {
     const previous = this.packagesByEnvironment.get(environment.envId.id) ?? [];
-    const current = await this.loadAndCachePackages(environment);
+    const current = await this.loadAndCachePackages(environment, refreshWorkspaceRoute);
 
     const changes = diffPackages(previous, current);
     if (changes.length > 0) {
@@ -192,11 +222,19 @@ export class CondaPackageManager implements PackageManager, Disposable {
     return current;
   }
 
-  private async loadAndCachePackages(environment: PythonEnvironment): Promise<Package[]> {
+  private async loadAndCachePackages(
+    environment: PythonEnvironment,
+    refreshWorkspaceRoute = false,
+  ): Promise<Package[]> {
+    const route = this.routes.getRoute(environment);
+    if (refreshWorkspaceRoute && route !== undefined) {
+      await this.routes.refresh(route.projectUri);
+    }
     const key = environment.envId.id;
     const previous = this.packagesByEnvironment.get(key) ?? [];
     const current = await this.loadPackages(environment, previous);
     this.packagesByEnvironment.set(key, current);
+    this.cachedEnvironments.set(key, environment);
     return [...current];
   }
 
@@ -212,10 +250,10 @@ export class CondaPackageManager implements PackageManager, Disposable {
       );
     }
     if (install.length > 0) {
-      const feature = dependencyFeature(route.environmentName, route.features);
-      await this.workspaces.addDependencies(route.manifestUri.fsPath, install, {
-        feature,
-      });
+      const target = route.snapshotAvailable
+        ? { environment: route.environmentName }
+        : { feature: dependencyFeature(route.environmentName, route.features) };
+      await this.workspaces.addDependencies(route.manifestUri.fsPath, install, target);
     }
   }
 
@@ -231,10 +269,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
               environment.environmentPath.fsPath,
             ),
           )
-        : this.workspacePackageInfo(
-            await this.workspaces.listPackages(route.manifestUri.fsPath, route.environmentName),
-            route.directCondaDependencies,
-          );
+        : this.workspacePackageInfo(route.packages, route.directDependencies);
     const previousByName = new Map(previous.map((pkg) => [pkg.name, pkg]));
     return packageInfo.map((info) => {
       const cached = previousByName.get(info.name);
@@ -278,21 +313,29 @@ export class CondaPackageManager implements PackageManager, Disposable {
 
   private workspacePackageInfo(
     workspacePackages: readonly WorkspacePackage[],
-    directDependencies: readonly string[],
+    directDependencies: readonly WorkspaceDependency[],
   ): PackageInfo[] {
-    const directNames = new Set(directDependencies.map(normalizedPackageName));
+    const directByName = new Map(
+      directDependencies.map((dependency) => [normalizedPackageName(dependency.name), dependency]),
+    );
     return workspacePackages
       .map((pkg) => {
-        const isTransitive = !directNames.has(normalizedPackageName(pkg.name));
+        const direct = directByName.get(normalizedPackageName(pkg.name));
+        const isTransitive = direct === undefined;
         const details = [
           pkg.build === '' ? undefined : `Build ${pkg.build}`,
-          isTransitive ? 'Transitive dependency' : 'Direct dependency',
+          isTransitive
+            ? 'Transitive dependency'
+            : direct.pypi
+              ? 'Direct PyPI dependency'
+              : 'Direct dependency',
         ].filter((value): value is string => value !== undefined);
         return {
           name: pkg.name,
           displayName: pkg.name,
           version: pkg.version,
           description: details.join(', '),
+          ...(direct?.table === undefined ? {} : { tooltip: `Declared in ${direct.table}` }),
           isTransitive,
         };
       })

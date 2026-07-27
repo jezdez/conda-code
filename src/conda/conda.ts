@@ -55,9 +55,14 @@ function structuredError(text: string): string | undefined {
   return undefined;
 }
 
-function firstLine(text: string): string | undefined {
-  const line = text.split(/\r?\n/, 1)[0]?.trim().slice(0, 500);
-  return line === '' ? undefined : line;
+function commandErrorLine(text: string): string | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const argparseError = lines.find((line) => /:\s*error:\s*/i.test(line));
+  const detail = argparseError?.replace(/^.*?:\s*error:\s*/i, '').trim() ?? lines[0];
+  return detail === undefined || detail === '' ? undefined : detail.slice(0, 500);
 }
 
 export function requireValue(value: string, label: string): string {
@@ -234,8 +239,8 @@ export class CondaClient {
     if (result.exitCode !== 0) {
       const detail =
         structuredError(result.stdout) ??
-        firstLine(result.stderr) ??
-        firstLine(result.stdout) ??
+        commandErrorLine(result.stderr) ??
+        commandErrorLine(result.stdout) ??
         `exit code ${result.exitCode}`;
       throw new Error(`${this.configuredExecutable} failed with ${detail}`);
     }

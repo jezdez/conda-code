@@ -301,11 +301,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
       if (invalidateRegular) {
         current.environments.invalidateRegularDiscovery();
       }
-      await current.packages.clearCache();
+      current.packages.resetWorkspaceCapabilities();
       if (runtime !== current) {
         return;
       }
       await current.environments.refresh(scope);
+      if (runtime !== current) {
+        return;
+      }
+      await current.packages.refreshCachedPackages();
     } catch (error) {
       log.error(`Refresh failed: ${messageFromError(error)}`);
     } finally {

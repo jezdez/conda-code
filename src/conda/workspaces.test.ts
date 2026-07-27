@@ -165,6 +165,212 @@ test('listTasks delegates JSON discovery to conda task', async () => {
   });
 });
 
+test('discoverWorkspace reads installed environments and packages in one snapshot', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const prefix = path.resolve('/work/project/.conda/envs/test');
+  const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
+  const runner = new RecordingRunner(() =>
+    success({
+      manifest,
+      name: 'demo',
+      environment_details: [
+        {
+          name: 'test',
+          features: ['test'],
+          platforms: [condaPlatform],
+          prefix,
+          installed: true,
+          resolutions: [
+            {
+              platform: condaPlatform,
+              subdir: condaPlatform,
+              conda_dependencies: {
+                python: {
+                  spec: 'python >=3.12',
+                  provenance: {
+                    table: '[feature.test.dependencies]',
+                    location: { feature: 'test' },
+                  },
+                },
+              },
+              pypi_dependencies: {},
+            },
+          ],
+          packages: [{ name: 'python', version: '3.13.5', build: 'h1_0' }],
+        },
+        {
+          name: 'docs',
+          features: ['docs'],
+          platforms: [condaPlatform],
+          prefix: path.resolve('/work/project/.conda/envs/docs'),
+          installed: false,
+          resolutions: [
+            {
+              platform: condaPlatform,
+              subdir: condaPlatform,
+              conda_dependencies: {
+                sphinx: {
+                  spec: 'sphinx',
+                  provenance: {
+                    table: '[feature.docs.dependencies]',
+                    location: { feature: 'docs' },
+                  },
+                },
+              },
+              pypi_dependencies: {},
+            },
+          ],
+          packages: [],
+        },
+      ],
+    }),
+  );
+  const client = new CondaWorkspacesClient({ runner });
+
+  const discovery = await client.discoverWorkspace(manifest, condaPlatform);
+
+  assert.equal(discovery.snapshotAvailable, true);
+  assert.deepEqual(discovery.info, { manifest, name: 'demo' });
+  assert.deepEqual(discovery.declaredEnvironments, [
+    {
+      name: 'test',
+      features: ['test'],
+      installed: true,
+      condaDependencies: ['python'],
+    },
+    {
+      name: 'docs',
+      features: ['docs'],
+      installed: false,
+      condaDependencies: ['sphinx'],
+    },
+  ]);
+  assert.equal(discovery.environments.length, 1);
+  assert.deepEqual(discovery.environments[0]?.directDependencies, [
+    {
+      name: 'python',
+      pypi: false,
+      location: { feature: 'test' },
+      table: '[feature.test.dependencies]',
+    },
+  ]);
+  assert.deepEqual(discovery.environments[0]?.python, {
+    version: '3.13.5',
+    executable:
+      process.platform === 'win32'
+        ? path.join(prefix, 'python.exe')
+        : path.join(prefix, 'bin', 'python'),
+  });
+  assert.deepEqual(
+    runner.calls.map(({ args }) => args),
+    [['workspace', '--file', manifest, 'info', '--json', '--packages']],
+  );
+});
+
+test('discoverWorkspace uses environment platform order for rich host resolutions', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
+  const dependency = (name: string, platform: string) => ({
+    platform,
+    subdir: condaPlatform,
+    conda_dependencies: {
+      [name]: {
+        spec: name,
+        provenance: {
+          table: `[target.${platform}.dependencies]`,
+          location: { platform },
+        },
+      },
+    },
+    pypi_dependencies: {},
+  });
+  const runner = new RecordingRunner(() =>
+    success({
+      manifest,
+      name: 'demo',
+      environment_details: [
+        {
+          name: 'default',
+          features: [],
+          platforms: ['host-base', 'host-accelerated'],
+          prefix: path.resolve('/work/project/.conda/envs/default'),
+          installed: true,
+          resolutions: [
+            dependency('accelerated', 'host-accelerated'),
+            dependency('base', 'host-base'),
+          ],
+          packages: [],
+        },
+      ],
+    }),
+  );
+
+  const discovery = await new CondaWorkspacesClient({ runner }).discoverWorkspace(
+    manifest,
+    condaPlatform,
+  );
+
+  assert.deepEqual(
+    discovery.environments[0]?.directDependencies.map(({ name }) => name),
+    ['base'],
+  );
+});
+
+test('discoverWorkspace falls back when the snapshot command is unavailable', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const prefix = path.resolve('/work/project/.conda/envs/default');
+  const runner = new RecordingRunner((_executable, args) => {
+    const command = args.join(' ');
+    if (command.endsWith('info --json --packages')) {
+      return {
+        exitCode: 2,
+        stdout: '',
+        stderr:
+          'usage: conda workspace [-h] [--file MANIFEST_FILE] ...\n' +
+          'conda workspace: error: unrecognized arguments: --packages',
+      };
+    }
+    if (command.endsWith('info --json')) {
+      return success({ manifest, name: 'demo' });
+    }
+    if (command.endsWith('envs --json')) {
+      return success([{ name: 'default', features: [], installed: true }]);
+    }
+    if (command.endsWith('info -e default --json')) {
+      return success(environmentInfo('default', prefix, 1));
+    }
+    if (command.endsWith('list -e default --json')) {
+      return success([{ name: 'python', version: '3.13.5', build: 'h1_0' }]);
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  const client = new CondaWorkspacesClient({ runner });
+
+  const discovery = await client.discoverWorkspace(manifest, 'linux-64');
+  const secondDiscovery = await client.discoverWorkspace(manifest, 'linux-64');
+
+  assert.equal(discovery.snapshotAvailable, false);
+  assert.equal(secondDiscovery.snapshotAvailable, false);
+  assert.deepEqual(
+    runner.calls.map(({ args }) => args.slice(3)),
+    [
+      ['info', '--json', '--packages'],
+      ['info', '--json'],
+      ['envs', '--json'],
+      ['info', '-e', 'default', '--json'],
+      ['list', '-e', 'default', '--json'],
+      ['info', '--json'],
+      ['envs', '--json'],
+      ['info', '-e', 'default', '--json'],
+      ['list', '-e', 'default', '--json'],
+    ],
+  );
+  assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 1);
+  client.resetCapabilityCache();
+  await client.discoverWorkspace(manifest, 'linux-64');
+  assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 2);
+});
+
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const defaultPrefix = path.resolve('/work/.conda/default');
@@ -189,7 +395,10 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
       ]);
     }
     if (command.endsWith('info -e docs --json')) {
-      return success(environmentInfo('docs', docsPrefix, 1));
+      return success({
+        ...environmentInfo('docs', docsPrefix, 1),
+        pypi_dependencies: { myst_parser: '>=4' },
+      });
     }
     if (command.endsWith('list -e docs --json')) {
       return success([{ name: 'sphinx', version: '8.2.0', build: 'pyhd8ed1ab_0' }]);
@@ -212,10 +421,40 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
   });
   assert.equal(environments[1]?.python, null);
   assert.deepEqual(environments[1]?.features, ['docs']);
+  assert.deepEqual(environments[1]?.directDependencies, [
+    { name: 'python', pypi: false },
+    { name: 'myst_parser', pypi: true },
+  ]);
   assert.equal(
     runner.calls.some(({ args }) => args.includes('unused')),
     false,
   );
+});
+
+test('discoverWorkspace retries the snapshot after a transient failure', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  let snapshotCalls = 0;
+  const runner = new RecordingRunner((_executable, args) => {
+    const command = args.join(' ');
+    if (command.endsWith('info --json --packages')) {
+      snapshotCalls += 1;
+      return snapshotCalls === 1
+        ? { exitCode: 1, stdout: '', stderr: 'temporary workspace failure' }
+        : success({ manifest, name: 'demo', environment_details: [] });
+    }
+    if (command.endsWith('info --json')) {
+      return success({ manifest, name: 'demo' });
+    }
+    if (command.endsWith('envs --json')) {
+      return success([]);
+    }
+    throw new Error(`Unexpected command: ${command}`);
+  });
+  const client = new CondaWorkspacesClient({ runner });
+
+  assert.equal((await client.discoverWorkspace(manifest, 'linux-64')).snapshotAvailable, false);
+  assert.equal((await client.discoverWorkspace(manifest, 'linux-64')).snapshotAvailable, true);
+  assert.equal(snapshotCalls, 2);
 });
 
 test('discoverInstalledEnvironments retains healthy siblings when one environment fails', async () => {
@@ -272,21 +511,22 @@ test('mutation methods build scoped, non-interactive commands', async () => {
   await client.cleanEnvironment(manifest, 'test');
   await client.addDependencies(manifest, ['pytest>=9'], {
     noInstall: true,
-    feature: 'test',
+    environment: 'test',
   });
 
   assert.deepEqual(
     runner.calls.map(({ args }) => args),
     [
-      ['workspace', '--file', manifest, 'install', '--yes', '-e', 'test'],
-      ['workspace', '--file', manifest, 'clean', '--yes', '-e', 'test'],
+      ['workspace', '--file', manifest, 'install', '--yes', '--json', '-e', 'test'],
+      ['workspace', '--file', manifest, 'clean', '--yes', '--json', '-e', 'test'],
       [
         'workspace',
         '--file',
         manifest,
         'add',
         '--yes',
-        '--feature',
+        '--json',
+        '--environment',
         'test',
         '--no-install',
         '--',
