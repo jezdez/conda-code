@@ -1,7 +1,7 @@
 # Create a workspace environment
 
-This tutorial creates a `conda.toml` project and lets conda-workspaces manage
-its environment.
+This tutorial creates a workspace with `conda.toml` and lets conda-workspaces
+manage its environment.
 
 ## Before you start
 
@@ -21,8 +21,8 @@ the **Conda Code** branch and handles operations aimed at it. See
 3. Select **Conda Code** if VS Code asks for an environment manager.
 
 Conda Code runs `conda workspace quickstart` with the conda manifest format. The
-project gains a `conda.toml` file and an installed default environment with
-Python.
+folder gains a `conda.toml` workspace manifest and an installed default
+environment with Python.
 
 The manifest starts with the same basic shape as:
 

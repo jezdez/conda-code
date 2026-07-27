@@ -31,9 +31,9 @@ artifacts and does not require a solve.
 support for `conda-lock.yml` and `conda-lock.yaml` through conda's environment
 specifier plugin API. Conda Code delegates parsing and installation to `conda`.
 
-The conda-lockfiles plugin can also register `pixi.lock` as an input format. Conda Code
-does not discover that filename because Pixi projects already have a project
-provider path through Pixi Code or conda-workspaces.
+The conda-lockfiles plugin can also register `pixi.lock` as an input format.
+Conda Code does not discover that filename because Pixi workspaces already have
+a provider path through Pixi Code or conda-workspaces.
 
 For both forms, configured default packages or additional creation packages
 would change the exact result. Conda Code disables the defaults and refuses the
@@ -44,7 +44,7 @@ to creation, not to later package operations.
 
 ## Workspace manifests
 
-A conda workspace manifest remains the project definition after installation.
+A workspace manifest remains the workspace definition after installation.
 Conda Code associates its installed prefixes with that manifest and routes
 supported changes through `conda workspace`.
 

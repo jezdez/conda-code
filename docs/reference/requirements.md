@@ -15,7 +15,7 @@ selection and workspace discovery require local files. Conda Code does not
 support virtual or untrusted workspaces because it executes local `conda`
 commands.
 
-## Conda workspaces
+## conda-workspaces
 
 | Component          | Requirement                                          |
 | ------------------ | ---------------------------------------------------- |

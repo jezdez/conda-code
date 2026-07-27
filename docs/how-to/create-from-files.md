@@ -83,7 +83,7 @@ name from the project directory. It fails when the project contains several
 recognized inputs. Interactive creation lists every recognized input and lets
 you choose one.
 
-An existing discovered conda workspace takes precedence in this shared creation
-flow. The interactive menu also offers a conda workspace, a project `.conda`
-prefix, and a regular named environment. Packages selected during interactive
-creation are installed after a file-based environment is created.
+An existing discovered workspace takes precedence in this shared creation flow.
+The interactive menu also offers a workspace, a project `.conda` prefix, and a
+regular named environment. Packages selected during interactive creation are
+installed after a file-based environment is created.

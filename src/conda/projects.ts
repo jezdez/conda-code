@@ -41,8 +41,8 @@ function projectKey(uri: Uri): string {
 
 export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
   public readonly name = 'condaWorkspaceProjects';
-  public readonly displayName = 'Find conda workspace projects';
-  public readonly description = 'Find unregistered projects with a conda workspace manifest';
+  public readonly displayName = 'Find workspaces';
+  public readonly description = 'Find unregistered folders containing workspace manifests';
 
   public constructor(
     private readonly api: PythonEnvironmentApi,
@@ -53,13 +53,13 @@ export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
   public async create(): Promise<PythonProject[] | undefined> {
     const candidates = await this.findCandidates();
     if (candidates.length === 0) {
-      await window.showInformationMessage('No unregistered conda workspace projects found.');
+      await window.showInformationMessage('No unregistered workspaces found.');
       return undefined;
     }
 
     const selected = await window.showQuickPick(candidates, {
-      title: 'Find conda workspace projects',
-      placeHolder: 'Select projects to register',
+      title: 'Find workspaces',
+      placeHolder: 'Select workspaces to register',
       canPickMany: true,
       ignoreFocusOut: true,
       matchOnDescription: true,
@@ -72,7 +72,7 @@ export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
     const projects = await window.withProgress(
       {
         location: ProgressLocation.Notification,
-        title: 'Validating conda workspace projects',
+        title: 'Validating workspaces',
       },
       async (progress) => {
         const registered = new Set(this.api.getPythonProjects().map(({ uri }) => projectKey(uri)));
@@ -90,12 +90,12 @@ export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
             valid.push({
               name: info.name,
               uri,
-              description: 'conda workspace project',
+              description: 'workspace',
               tooltip: info.manifest,
             });
           } catch (error) {
             this.options.log?.warn(
-              `Could not validate conda workspace manifest ${candidate.manifest.fsPath}: ${String(error)}`,
+              `Could not validate workspace manifest ${candidate.manifest.fsPath}: ${String(error)}`,
             );
           }
         }
@@ -104,7 +104,7 @@ export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
     );
 
     if (projects.length === 0) {
-      await window.showInformationMessage('No valid conda workspace projects were selected.');
+      await window.showInformationMessage('No valid workspaces were selected.');
       return undefined;
     }
     this.api.addPythonProject(projects);

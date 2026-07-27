@@ -4,10 +4,10 @@ Conda environments, packages, workspaces, and tasks in Visual Studio Code.
 
 Conda Code registers its own provider with the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
-It brings regular conda environments and project-aware
+It brings regular conda environments and
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/)
-environments into one manager, with package operations and declared workspace
-tasks alongside them.
+workspace environments into one manager, with package operations and declared
+workspace tasks alongside them.
 
 The provider ID is `jezdez.conda-code:conda`. Conda Code runs the configured
 `conda` executable directly and does not delegate to Python Environments'
@@ -78,7 +78,7 @@ Create and select named environments directly from `environment.yml`, CEP 23
 explicit files, and supported conda lockfiles.
 :::
 
-:::{grid-item-card} {octicon}`project` conda workspaces
+:::{grid-item-card} {octicon}`project` conda-workspaces
 :link: how-to/use-workspaces
 :link-type: doc
 
@@ -98,7 +98,7 @@ conda installation, and add dependencies to supported workspace environments.
 
 :::{tip}
 Conda Code includes conda-pypi records, accepts conda-lockfiles inputs, skips
-conda-global tool environments and conda-exec caches, and leaves Pixi projects
+conda-global tool environments and conda-exec caches, and leaves Pixi workspaces
 to Pixi Code when it is installed. See [](explanation/ecosystem.md) for how the
 tools fit together.
 :::

@@ -5,8 +5,7 @@ documentation. It uses a standard `environment.yml` to create a regular named
 environment.
 
 The `workspace` fixture drives the secondary animation in the workspace guide.
-It contains one conda workspace, two direct dependencies, and one declared
-task.
+It contains one workspace, two direct dependencies, and one declared task.
 
 ## Record the regular environment flow
 

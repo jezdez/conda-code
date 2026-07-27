@@ -83,7 +83,7 @@ See [](project-creation.md) for naming and exact-input behavior.
 Command ID: `conda-code.runWorkspaceTask`
 
 Opens a picker containing the tasks declared by the active, confirmed
-conda-workspaces manifest, then runs the selected native VS Code task. A
+workspace manifest, then runs the selected native VS Code task. A
 {octicon}`play` action appears in the editor title for `conda.toml`, `pixi.toml`,
 and `pyproject.toml`. Conda Code validates the active file before asking
 conda-workspaces for its tasks.

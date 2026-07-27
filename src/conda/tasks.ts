@@ -326,21 +326,19 @@ export async function runWorkspaceTask(
       path.basename(manifest.fsPath).toLowerCase() as (typeof MANIFEST_NAMES)[number],
     )
   ) {
-    await window.showInformationMessage(
-      'Open a conda workspace manifest before running a workspace task.',
-    );
+    await window.showInformationMessage('Open a workspace manifest before running a task.');
     return;
   }
 
   const availableTasks = await provider.provideTasksForManifest(manifest);
   if (availableTasks === undefined) {
     await window.showInformationMessage(
-      'The active file is not a conda workspace manifest managed by Conda Code.',
+      'The active file is not a workspace manifest managed by Conda Code.',
     );
     return;
   }
   if (availableTasks.length === 0) {
-    await window.showInformationMessage('The active conda workspace declares no tasks.');
+    await window.showInformationMessage('The active workspace declares no tasks.');
     return;
   }
 
@@ -352,7 +350,7 @@ export async function runWorkspaceTask(
     })),
     {
       title: 'Run Workspace Task',
-      placeHolder: 'Select a task declared by conda-workspaces',
+      placeHolder: 'Select a task from the workspace',
       matchOnDescription: true,
     },
   );

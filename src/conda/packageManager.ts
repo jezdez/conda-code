@@ -56,7 +56,8 @@ interface WorkspaceMutationGroup {
 export class CondaPackageManager implements PackageManager, Disposable {
   public readonly name = 'conda';
   public readonly displayName = 'Conda Code';
-  public readonly description = 'Packages installed in conda and conda workspace environments';
+  public readonly description =
+    'Packages installed in regular conda environments and workspace environments';
   public readonly iconPath = new ThemeIcon('package');
   public readonly log?: LogOutputChannel;
 
@@ -120,9 +121,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
           await this.routes.refresh(route.projectUri);
           const refreshedRoute = this.routes.getRoute(current);
           if (refreshedRoute === undefined) {
-            throw new Error(
-              `Conda workspace ownership changed for ${current.environmentPath.fsPath}`,
-            );
+            throw new Error(`Workspace ownership changed for ${current.environmentPath.fsPath}`);
           }
           route = refreshedRoute;
           await this.manageWorkspace(route, uninstall, install, options.upgrade === true);
@@ -222,7 +221,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   private requireOwnedEnvironment(environment: PythonEnvironment): PythonEnvironment {
     const prefix = environment.environmentPath.fsPath;
     if (this.routes.isConflictedPrefix(prefix)) {
-      throw new Error(`Multiple conda workspace manifests claim the prefix ${prefix}`);
+      throw new Error(`Multiple workspace manifests claim the prefix ${prefix}`);
     }
     const current = this.currentEnvironment(environment);
     if (current === undefined) {
@@ -287,7 +286,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
       const dependency = this.workspaceDependency(route, spec);
       if (dependency !== undefined) {
         if (dependency.pypi) {
-          throw new Error('Conda workspace update does not support PyPI dependencies');
+          throw new Error('Workspace update does not support PyPI dependencies');
         }
         updates.push(spec);
         continue;
@@ -365,7 +364,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
       }
       if (dependency.location === undefined) {
         throw new Error(
-          `Conda workspace dependency changes require a structured declaration location. ` +
+          `Workspace dependency changes require a structured declaration location. ` +
             `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
         );
       }

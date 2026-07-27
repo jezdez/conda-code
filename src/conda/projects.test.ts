@@ -200,7 +200,7 @@ test('validates and adds only selected projects', async () => {
     {
       name: 'beta-workspace',
       uri: vscode.Uri.file('/work/beta'),
-      description: 'conda workspace project',
+      description: 'workspace',
       tooltip: beta.fsPath,
     },
   ]);

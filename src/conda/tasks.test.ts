@@ -351,7 +351,7 @@ test('run workspace task refuses an unconfirmed manifest', async (t) => {
   await tasks.runWorkspaceTask(provider, manifest);
 
   assert.deepEqual(vscode.__state.messages, [
-    'The active file is not a conda workspace manifest managed by Conda Code.',
+    'The active file is not a workspace manifest managed by Conda Code.',
   ]);
   assert.deepEqual(vscode.__state.quickPickCalls, []);
   assert.deepEqual(vscode.__state.executedTasks, []);
