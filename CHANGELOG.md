@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.1
 
 - Rename **Find conda workspace projects** to **Find workspaces** and use
   Pixi-aligned workspace terminology throughout the extension and documentation
