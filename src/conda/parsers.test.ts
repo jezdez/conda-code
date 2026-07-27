@@ -217,6 +217,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
           {
             name: 'test',
             features: ['test'],
+            platforms: ['linux-64'],
             prefix: '/work/.conda/envs/test',
             installed: true,
             resolutions: [
@@ -274,6 +275,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
         {
           name: 'test',
           features: ['test'],
+          platforms: ['linux-64'],
           prefix: '/work/.conda/envs/test',
           installed: true,
           resolutions: [
@@ -318,6 +320,7 @@ test('parseWorkspaceSnapshot accepts provenance without structured selectors', (
         {
           name: 'default',
           features: [],
+          platforms: ['linux-64'],
           prefix: '/work/.conda/envs/default',
           installed: true,
           resolutions: [

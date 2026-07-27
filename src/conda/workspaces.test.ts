@@ -177,6 +177,7 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
         {
           name: 'test',
           features: ['test'],
+          platforms: [condaPlatform],
           prefix,
           installed: true,
           resolutions: [
@@ -200,6 +201,7 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
         {
           name: 'docs',
           features: ['docs'],
+          platforms: [condaPlatform],
           prefix: path.resolve('/work/project/.conda/envs/docs'),
           installed: false,
           resolutions: [
@@ -265,7 +267,7 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
   );
 });
 
-test('discoverWorkspace uses the first declared platform matching the host subdir', async () => {
+test('discoverWorkspace uses environment platform order for rich host resolutions', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
   const dependency = (name: string, platform: string) => ({
@@ -290,9 +292,13 @@ test('discoverWorkspace uses the first declared platform matching the host subdi
         {
           name: 'default',
           features: [],
+          platforms: ['host-base', 'host-accelerated'],
           prefix: path.resolve('/work/project/.conda/envs/default'),
           installed: true,
-          resolutions: [dependency('first', 'host-accelerated'), dependency('second', 'host-base')],
+          resolutions: [
+            dependency('accelerated', 'host-accelerated'),
+            dependency('base', 'host-base'),
+          ],
           packages: [],
         },
       ],
@@ -306,7 +312,7 @@ test('discoverWorkspace uses the first declared platform matching the host subdi
 
   assert.deepEqual(
     discovery.environments[0]?.directDependencies.map(({ name }) => name),
-    ['first'],
+    ['base'],
   );
 });
 
@@ -316,7 +322,13 @@ test('discoverWorkspace falls back when the snapshot command is unavailable', as
   const runner = new RecordingRunner((_executable, args) => {
     const command = args.join(' ');
     if (command.endsWith('info --json --packages')) {
-      return { exitCode: 2, stdout: '', stderr: 'unrecognized arguments: --packages' };
+      return {
+        exitCode: 2,
+        stdout: '',
+        stderr:
+          'usage: conda workspace [-h] [--file MANIFEST_FILE] ...\n' +
+          'conda workspace: error: unrecognized arguments: --packages',
+      };
     }
     if (command.endsWith('info --json')) {
       return success({ manifest, name: 'demo' });

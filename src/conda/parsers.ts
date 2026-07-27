@@ -70,6 +70,7 @@ export interface WorkspaceSnapshotResolution {
 export interface WorkspaceSnapshotEnvironment {
   readonly name: string;
   readonly features: readonly string[];
+  readonly platforms: readonly string[];
   readonly prefix: string;
   readonly installed: boolean;
   readonly resolutions: readonly WorkspaceSnapshotResolution[];
@@ -373,6 +374,7 @@ export function parseWorkspaceSnapshot(text: string): WorkspaceSnapshot {
       return {
         name: expectString(environment.name, `${environmentPath}.name`),
         features: expectStringArray(environment.features, `${environmentPath}.features`),
+        platforms: expectStringArray(environment.platforms, `${environmentPath}.platforms`),
         prefix: expectString(environment.prefix, `${environmentPath}.prefix`),
         installed: expectBoolean(environment.installed, `${environmentPath}.installed`),
         resolutions,

@@ -103,10 +103,17 @@ function hostSnapshotResolution(
   environment: WorkspaceSnapshotEnvironment,
   condaPlatform: string,
 ): WorkspaceSnapshotResolution | undefined {
-  return (
-    environment.resolutions.find((resolution) => resolution.platform === condaPlatform) ??
-    environment.resolutions.find((resolution) => resolution.subdir === condaPlatform)
-  );
+  const exact = environment.resolutions.find((resolution) => resolution.platform === condaPlatform);
+  if (exact !== undefined) {
+    return exact;
+  }
+  for (const platform of environment.platforms) {
+    const resolution = environment.resolutions.find((candidate) => candidate.platform === platform);
+    if (resolution?.subdir === condaPlatform) {
+      return resolution;
+    }
+  }
+  return undefined;
 }
 
 function hostSnapshotEnvironment(
