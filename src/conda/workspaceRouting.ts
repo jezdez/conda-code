@@ -4,26 +4,29 @@ import path from 'node:path';
 import type { PythonEnvironment } from '@vscode/python-environments';
 import type { Uri } from 'vscode';
 
+import type { WorkspaceDependency, WorkspacePackage } from './workspaces';
+
 export interface CondaWorkspaceRoute {
   readonly projectUri: Uri;
   readonly manifestUri: Uri;
   readonly environmentName: string;
   readonly features: readonly string[];
-  readonly directCondaDependencies: readonly string[];
+  readonly directDependencies: readonly WorkspaceDependency[];
+  readonly packages: readonly WorkspacePackage[];
+  readonly snapshotAvailable: boolean;
   readonly prefix: string;
   readonly pythonPath: string;
 }
 
-export function dependencyFeature(
-  environmentName: string,
-  features: readonly string[],
-): string | undefined {
-  if (features.length > 1) {
+export function dependencyFeature(environmentName: string, features: readonly string[]): string {
+  const feature = features[0];
+  if (feature === undefined || features.length !== 1) {
     throw new Error(
-      `Package changes require a single feature. ${environmentName} uses: ${features.join(', ')}`,
+      `Package changes require exactly one feature with conda-workspaces 0.7 metadata. ` +
+        `${environmentName} uses ${features.length === 0 ? 'none' : features.join(', ')}`,
     );
   }
-  return features[0];
+  return feature;
 }
 
 export interface CondaWorkspaceRouteManager {

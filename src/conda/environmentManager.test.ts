@@ -19,8 +19,12 @@ import type { Memento, Uri as VscodeUri } from 'vscode';
 import type { CondaClient } from './conda';
 import type { CondaInfo } from './parsers';
 import { canonicalCondaPath } from './prefixes';
-import type { CondaWorkspaceRouteManager } from './workspaceRouting';
-import type { CondaWorkspacesClient, InstalledWorkspaceEnvironment } from './workspaces';
+import type { CondaWorkspaceRoute, CondaWorkspaceRouteManager } from './workspaceRouting';
+import type {
+  CondaWorkspacesClient,
+  DependencyChangeOptions,
+  InstalledWorkspaceEnvironment,
+} from './workspaces';
 
 const VSCODE_STUB_URL = 'conda-code-test:vscode';
 const VSCODE_STUB_SOURCE = String.raw`
@@ -175,6 +179,16 @@ function condaInfo(
     envs,
     envsDetails: {},
   };
+}
+
+function emptyWorkspaceDiscovery(manifest: string) {
+  return {
+    info: { manifest, name: 'demo' },
+    snapshotAvailable: false,
+    declaredEnvironments: [],
+    environments: [],
+    failures: [],
+  } as const;
 }
 
 async function createCondaInstallation(root: string): Promise<string> {
@@ -631,18 +645,14 @@ test('enrichment that wins during refresh is not overwritten by the old snapshot
   });
   let workspaceCalls = 0;
   const workspaces = {
-    getWorkspaceInfo: async () => {
+    discoverWorkspace: async () => {
       workspaceCalls += 1;
       if (workspaceCalls === 2) {
         refreshStarted();
         await refreshGate;
       }
-      return { manifest: manifestPath, name: 'demo' };
+      return emptyWorkspaceDiscovery(manifestPath);
     },
-    discoverInstalledEnvironments: async () => ({
-      environments: [],
-      failures: [],
-    }),
   } as unknown as CondaWorkspacesClient;
   let resolveEnrichment!: (info: CondaInfo | undefined) => void;
   const enrichment = new Promise<CondaInfo | undefined>((resolve) => {
@@ -966,7 +976,7 @@ test('refresh requests during a follow-up trigger another pass', async (t) => {
   });
   let workspaceDiscoveryCalls = 0;
   const workspaces = {
-    getWorkspaceInfo: async () => {
+    discoverWorkspace: async () => {
       workspaceDiscoveryCalls += 1;
       if (workspaceDiscoveryCalls === 1) {
         startFirstRefresh();
@@ -975,12 +985,8 @@ test('refresh requests during a follow-up trigger another pass', async (t) => {
         startSecondRefresh();
         await secondRefreshGate;
       }
-      return { manifest: manifestPath, name: 'demo' };
+      return emptyWorkspaceDiscovery(manifestPath);
     },
-    discoverInstalledEnvironments: async () => ({
-      environments: [],
-      failures: [],
-    }),
   } as unknown as CondaWorkspacesClient;
 
   const { vscode, environmentManager, CondaSelectionState } = modules();
@@ -1107,17 +1113,17 @@ test('disposing during refresh prevents the old runtime from committing state', 
   let workspaceCalls = 0;
   let workspaceSignal: AbortSignal | undefined;
   const workspaces = {
-    getWorkspaceInfo: async (_manifest: string, options?: { readonly signal?: AbortSignal }) => {
+    discoverWorkspace: async (
+      _manifest: string,
+      _platform: string,
+      options?: { readonly signal?: AbortSignal },
+    ) => {
       workspaceCalls += 1;
       workspaceSignal = options?.signal;
       markStarted();
       await gate;
-      return { manifest: manifestPath, name: 'demo' };
+      return emptyWorkspaceDiscovery(manifestPath);
     },
-    discoverInstalledEnvironments: async () => ({
-      environments: [],
-      failures: [],
-    }),
   } as unknown as CondaWorkspacesClient;
 
   const { vscode, environmentManager, CondaSelectionState } = modules();
@@ -1242,14 +1248,10 @@ test('clearCache serializes invalidation and refresh before replacement enrichme
   const saved: (CondaInfo | undefined)[] = [];
   let workspaceCalls = 0;
   const workspaces = {
-    getWorkspaceInfo: async () => {
+    discoverWorkspace: async () => {
       workspaceCalls += 1;
-      return { manifest: manifestPath, name: 'demo' };
+      return emptyWorkspaceDiscovery(manifestPath);
     },
-    discoverInstalledEnvironments: async () => ({
-      environments: [],
-      failures: [],
-    }),
   } as unknown as CondaWorkspacesClient;
 
   const { vscode, environmentManager, CondaSelectionState } = modules();
@@ -1351,15 +1353,11 @@ test('reads keep serving the committed snapshot during refresh', async (t) => {
     releaseRefresh = resolve;
   });
   const workspaces = {
-    getWorkspaceInfo: async () => {
+    discoverWorkspace: async () => {
       markRefreshStarted();
       await refreshGate;
-      return { manifest: manifestPath, name: 'demo' };
+      return emptyWorkspaceDiscovery(manifestPath);
     },
-    discoverInstalledEnvironments: async () => ({
-      environments: [],
-      failures: [],
-    }),
   } as unknown as CondaWorkspacesClient;
 
   const { vscode, environmentManager, CondaSelectionState } = modules();
@@ -1998,6 +1996,98 @@ test('quick create rejects multiple project environment inputs', async (t) => {
   assert.equal(createCalls, 0);
 });
 
+test('workspace creation reuses snapshot declarations and targets the environment', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-create-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const manifestPath = path.join(projectPath, 'conda.toml');
+  const prefix = path.join(projectPath, '.conda', 'envs', 'default');
+  await mkdir(projectPath);
+  await writeFile(manifestPath, '[workspace]\nname = "demo"\n');
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(manifestPath)];
+  vscode.__state.folders = [{ uri: project }];
+  let installed = false;
+  let installs = 0;
+  const additions: {
+    readonly specs: readonly string[];
+    readonly options: DependencyChangeOptions;
+  }[] = [];
+  const workspaces = {
+    discoverWorkspace: async () => ({
+      info: { manifest: manifestPath, name: 'demo' },
+      snapshotAvailable: true,
+      declaredEnvironments: [
+        {
+          name: 'default',
+          features: ['dev', 'test'],
+          installed,
+          condaDependencies: installed ? ['python', 'ruff'] : ['pytest'],
+        },
+      ],
+      environments: installed
+        ? [
+            {
+              name: 'default',
+              prefix,
+              features: ['dev', 'test'],
+              python: { version: '3.13.5', executable: path.join(prefix, 'bin', 'python') },
+              packages: [
+                { name: 'python', version: '3.13.5', build: 'h1_0' },
+                { name: 'ruff', version: '0.12.0', build: 'py_0' },
+              ],
+              directDependencies: [
+                { name: 'python', pypi: false, location: { environment: 'default' } },
+                { name: 'ruff', pypi: false, location: { environment: 'default' } },
+              ],
+            },
+          ]
+        : [],
+      failures: [],
+    }),
+    listEnvironments: async () => {
+      assert.fail('legacy environment discovery should not be requested');
+    },
+    getEnvironmentInfo: async () => {
+      assert.fail('legacy environment info should not be requested');
+    },
+    addDependencies: async (
+      _manifest: string,
+      specs: readonly string[],
+      options: DependencyChangeOptions,
+    ) => {
+      additions.push({ specs: [...specs], options });
+    },
+    installEnvironment: async () => {
+      installs += 1;
+      installed = true;
+    },
+  } as unknown as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  const created = await manager.create(project, {
+    quickCreate: true,
+    additionalPackages: ['ruff'],
+  });
+
+  assert.equal(created?.environmentPath.fsPath, prefix);
+  assert.equal(installs, 1);
+  assert.equal(additions.length, 1);
+  assert.deepEqual(additions[0]?.specs, ['python', 'ruff']);
+  assert.equal(additions[0]?.options.environment, 'default');
+  assert.equal(additions[0]?.options.noInstall, true);
+  assert.equal(additions[0]?.options.feature, undefined);
+});
+
 test('partial workspace failure retains the failed sibling and drops a healthy deletion', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-snapshot-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -2016,18 +2106,24 @@ test('partial workspace failure retains the failed sibling and drops a healthy d
   const installed = (name: string, prefix: string): InstalledWorkspaceEnvironment => ({
     name,
     prefix,
-    condaDependencies: { python: '>=3.13' },
     features: [],
     python: {
       version: '3.13.5',
       executable: path.join(prefix, 'bin', 'python'),
     },
+    packages: [],
+    directDependencies: [{ name: 'python', pypi: false }],
   });
   let partialFailure = false;
   const workspaces = {
-    getWorkspaceInfo: async () => ({ manifest: manifestPath, name: 'demo' }),
-    discoverInstalledEnvironments: async () =>
-      partialFailure
+    discoverWorkspace: async () => ({
+      info: { manifest: manifestPath, name: 'demo' },
+      snapshotAvailable: false,
+      declaredEnvironments: [
+        { name: 'default', features: [], installed: true },
+        { name: 'removed', features: [], installed: true },
+      ],
+      ...(partialFailure
         ? {
             environments: [],
             failures: [{ environmentName: 'default', error: new Error('temporary failure') }],
@@ -2038,7 +2134,8 @@ test('partial workspace failure retains the failed sibling and drops a healthy d
               installed('removed', removedPrefix),
             ],
             failures: [],
-          },
+          }),
+    }),
   } as unknown as CondaWorkspacesClient;
   const conda = {
     getInfo: async () => condaInfo(path.join(root, 'base')),
@@ -2104,8 +2201,10 @@ test('resolve respects failed workspace prefix and project reservations', async 
   } as unknown as CondaClient;
   let reportPrefix = true;
   const workspaces = {
-    getWorkspaceInfo: async () => ({ manifest: manifestPath, name: 'demo' }),
-    discoverInstalledEnvironments: async () => ({
+    discoverWorkspace: async () => ({
+      info: { manifest: manifestPath, name: 'demo' },
+      snapshotAvailable: false,
+      declaredEnvironments: [],
       environments: [],
       failures: [
         {
@@ -2164,15 +2263,18 @@ test('workspace discovery excludes conda-exec cache prefixes and routes', async 
       getInfo: async () => condaInfo(path.join(root, 'base'), [prefix]),
     } as unknown as CondaClient,
     {
-      getWorkspaceInfo: async () => ({ manifest: manifestPath, name: 'demo' }),
-      discoverInstalledEnvironments: async () => ({
+      discoverWorkspace: async () => ({
+        info: { manifest: manifestPath, name: 'demo' },
+        snapshotAvailable: false,
+        declaredEnvironments: [{ name: 'default', features: [], installed: true }],
         environments: [
           {
             name: 'default',
             prefix,
-            condaDependencies: { python: '>=3.13' },
             features: [],
             python: { version: '3.13.5', executable: python },
+            packages: [],
+            directDependencies: [{ name: 'python', pypi: false }],
           },
         ],
         failures: [],
@@ -2229,15 +2331,18 @@ test('workspace prefixes stay excluded through filesystem aliases', async (t) =>
   vscode.__state.files = [vscode.Uri.file(manifestPath)];
   vscode.__state.folders = [{ uri: project }];
   const workspaces = {
-    getWorkspaceInfo: async () => ({ manifest: manifestPath, name: 'demo' }),
-    discoverInstalledEnvironments: async () => ({
+    discoverWorkspace: async () => ({
+      info: { manifest: manifestPath, name: 'demo' },
+      snapshotAvailable: false,
+      declaredEnvironments: [{ name: 'default', features: [], installed: true }],
       environments: [
         {
           name: 'default',
           prefix,
-          condaDependencies: { python: '>=3.13' },
           features: [],
           python: { version: '3.13.5', executable: python },
+          packages: [],
+          directDependencies: [{ name: 'python', pypi: false }],
         },
       ],
       failures: [],
@@ -2304,7 +2409,7 @@ test('remove rejects a symlinked named environment before calling conda', async 
   assert.equal(removalCalls, 0);
 });
 
-test('workspace package changes reject operations that cannot preserve the manifest', async (t) => {
+test('workspace package additions follow snapshot capabilities', async (t) => {
   const { vscode, packageManager } = modules();
   const projectUri = vscode.Uri.file('/work/demo');
   const manifestUri = vscode.Uri.file('/work/demo/conda.toml');
@@ -2312,13 +2417,16 @@ test('workspace package changes reject operations that cannot preserve the manif
   const environment = {
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
+    displayName: 'default',
   } as PythonEnvironment;
-  const route = {
+  let route: CondaWorkspaceRoute = {
     projectUri,
     manifestUri,
     environmentName: 'default',
-    features: [],
-    directCondaDependencies: ['python', 'numpy'],
+    features: ['dev', 'test'],
+    directDependencies: [],
+    packages: [],
+    snapshotAvailable: true,
     prefix,
     pythonPath: `${prefix}/bin/python`,
   };
@@ -2331,11 +2439,13 @@ test('workspace package changes reject operations that cannot preserve the manif
     isConflictedPrefix: () => false,
     refresh: async () => undefined,
   } as CondaWorkspaceRouteManager;
-  let workspaceCalls = 0;
+  const additions: { readonly specs: readonly string[]; readonly options: object }[] = [];
   const workspaces = {
-    addDependencies: async () => {
-      workspaceCalls += 1;
-    },
+    addDependencies: async (
+      _manifest: string,
+      specs: readonly string[],
+      options: DependencyChangeOptions,
+    ) => additions.push({ specs: [...specs], options }),
   } as unknown as CondaWorkspacesClient;
   const packages = new packageManager.CondaPackageManager(
     pythonApi([]),
@@ -2345,15 +2455,19 @@ test('workspace package changes reject operations that cannot preserve the manif
   );
   t.after(() => packages.dispose());
 
+  await packages.manage(environment, { install: ['pytest'] });
+  route = { ...route, snapshotAvailable: false, features: [] };
   await assert.rejects(
-    packages.manage(environment, { install: ['numpy'], upgrade: true }),
-    /Conda workspace package upgrades are not supported/,
+    packages.manage(environment, { install: ['ruff'] }),
+    /require exactly one feature/,
   );
-  await assert.rejects(
-    packages.manage(environment, { uninstall: ['numpy'] }),
-    /Conda workspace package removal is not supported/,
-  );
-  assert.equal(workspaceCalls, 0);
+  route = { ...route, features: ['dev'] };
+  await packages.manage(environment, { install: ['ruff'] });
+
+  assert.deepEqual(additions, [
+    { specs: ['pytest'], options: { environment: 'default' } },
+    { specs: ['ruff'], options: { feature: 'dev' } },
+  ]);
 });
 
 test('workspace packages identify direct and transitive dependencies', async (t) => {
@@ -2365,15 +2479,25 @@ test('workspace packages identify direct and transitive dependencies', async (t)
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
   } as PythonEnvironment;
-  const route = {
+  let route = {
     projectUri,
     manifestUri,
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python', 'rich'],
+    directDependencies: [
+      { name: 'python', pypi: false },
+      { name: 'rich', pypi: false },
+    ],
+    packages: [
+      { name: 'bzip2', version: '1.0.8', build: 'h1_0' },
+      { name: 'Python', version: '3.13.1', build: 'h2_0' },
+      { name: 'rich', version: '14.0.0', build: 'py_0' },
+    ],
+    snapshotAvailable: false,
     prefix,
     pythonPath: `${prefix}/bin/python`,
   };
+  let routeRefreshes = 0;
   const routes = {
     getRoute: () => route,
     getEnvironmentForPrefix: () => environment,
@@ -2381,14 +2505,21 @@ test('workspace packages identify direct and transitive dependencies', async (t)
     getCondaExecutableForPrefix: () => undefined,
     invalidateRegularDiscovery: () => undefined,
     isConflictedPrefix: () => false,
-    refresh: async () => undefined,
+    refresh: async () => {
+      routeRefreshes += 1;
+      route = {
+        ...route,
+        directDependencies: [...route.directDependencies, { name: 'httpx', pypi: false }],
+        packages: [{ name: 'httpx', version: '0.28.1', build: 'py_0' }],
+      };
+    },
   } as CondaWorkspaceRouteManager;
+  let liveReads = 0;
   const workspaces = {
-    listPackages: async () => [
-      { name: 'bzip2', version: '1.0.8', build: 'h1_0' },
-      { name: 'Python', version: '3.13.1', build: 'h2_0' },
-      { name: 'rich', version: '14.0.0', build: 'py_0' },
-    ],
+    listPackages: async () => {
+      liveReads += 1;
+      return [{ name: 'httpx', version: '0.28.1', build: 'py_0' }];
+    },
   } as unknown as CondaWorkspacesClient;
   const packages = new packageManager.CondaPackageManager(
     pythonApi([]),
@@ -2422,6 +2553,17 @@ test('workspace packages identify direct and transitive dependencies', async (t)
       },
     ],
   );
+  assert.equal(liveReads, 0);
+  assert.deepEqual(
+    (await packages.getPackages(environment, { skipCache: true }))?.map((pkg) => ({
+      name: pkg.name,
+      version: pkg.version,
+      isTransitive: (pkg as Package & { readonly isTransitive?: boolean }).isTransitive,
+    })),
+    [{ name: 'httpx', version: '0.28.1', isTransitive: false }],
+  );
+  assert.equal(liveReads, 0);
+  assert.equal(routeRefreshes, 1);
 });
 
 test('regular package operations use the environment owner', async (t) => {

@@ -7,17 +7,23 @@ import {
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
+  parseWorkspaceSnapshot,
   parseWorkspaceTasks,
   type WorkspaceEnvironment,
   type WorkspaceEnvironmentInfo,
   type WorkspaceInfo,
+  type WorkspaceDependency,
   type WorkspacePackage,
   type WorkspaceQuickstartResult,
+  type WorkspaceSnapshotEnvironment,
+  type WorkspaceSnapshotResolution,
   type WorkspaceTaskList,
 } from './parsers';
 import { type CommandResult } from './runner';
 
 export type {
+  WorkspaceDependency,
+  WorkspaceDependencyLocation,
   WorkspaceEnvironment,
   WorkspaceEnvironmentInfo,
   WorkspaceInfo,
@@ -36,8 +42,13 @@ export interface QuickstartOptions extends CondaOperationOptions {
 }
 
 export interface DependencyChangeOptions extends CondaOperationOptions {
+  readonly environment?: string;
   readonly feature?: string;
   readonly noInstall?: boolean;
+}
+
+export interface WorkspaceEnvironmentDeclaration extends WorkspaceEnvironment {
+  readonly condaDependencies?: readonly string[];
 }
 
 export interface WorkspacePython {
@@ -45,9 +56,13 @@ export interface WorkspacePython {
   readonly executable: string;
 }
 
-export interface InstalledWorkspaceEnvironment extends WorkspaceEnvironmentInfo {
+export interface InstalledWorkspaceEnvironment {
+  readonly name: string;
+  readonly prefix: string;
   readonly features: readonly string[];
   readonly python: WorkspacePython | null;
+  readonly packages: readonly WorkspacePackage[];
+  readonly directDependencies: readonly WorkspaceDependency[];
 }
 
 export interface FailedWorkspaceEnvironmentDiscovery {
@@ -57,8 +72,14 @@ export interface FailedWorkspaceEnvironmentDiscovery {
 }
 
 export interface InstalledWorkspaceEnvironmentDiscovery {
+  readonly declaredEnvironments: readonly WorkspaceEnvironmentDeclaration[];
   readonly environments: readonly InstalledWorkspaceEnvironment[];
   readonly failures: readonly FailedWorkspaceEnvironmentDiscovery[];
+}
+
+export interface CondaWorkspaceDiscovery extends InstalledWorkspaceEnvironmentDiscovery {
+  readonly info: WorkspaceInfo;
+  readonly snapshotAvailable: boolean;
 }
 
 function absoluteManifestPath(manifest: string): string {
@@ -71,7 +92,107 @@ function pythonExecutable(prefix: string, condaPlatform: string): string {
     : posix.join(prefix, 'bin', 'python');
 }
 
+function snapshotOptionIsUnsupported(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /(?:unrecognized arguments|unknown option|no such option).*--packages/i.test(error.message)
+  );
+}
+
+function hostSnapshotResolution(
+  environment: WorkspaceSnapshotEnvironment,
+  condaPlatform: string,
+): WorkspaceSnapshotResolution | undefined {
+  return (
+    environment.resolutions.find((resolution) => resolution.platform === condaPlatform) ??
+    environment.resolutions.find((resolution) => resolution.subdir === condaPlatform)
+  );
+}
+
+function hostSnapshotEnvironment(
+  environment: WorkspaceSnapshotEnvironment,
+  condaPlatform: string,
+): InstalledWorkspaceEnvironment {
+  const resolution = hostSnapshotResolution(environment, condaPlatform);
+  const directDependencies = resolution?.dependencies ?? [];
+  const pythonPackage = environment.packages.find(
+    (workspacePackage) => workspacePackage.name.toLowerCase() === 'python',
+  );
+  return {
+    name: environment.name,
+    prefix: environment.prefix,
+    features: environment.features,
+    python:
+      pythonPackage === undefined
+        ? null
+        : {
+            version: pythonPackage.version,
+            executable: pythonExecutable(environment.prefix, condaPlatform),
+          },
+    packages: environment.packages,
+    directDependencies,
+  };
+}
+
 export class CondaWorkspacesClient extends CondaClient {
+  private snapshotUnsupported = false;
+
+  public async discoverWorkspace(
+    manifest: string,
+    condaPlatform: string,
+    options: CondaOperationOptions = {},
+  ): Promise<CondaWorkspaceDiscovery> {
+    if (!this.snapshotUnsupported) {
+      try {
+        const result = await this.runManifestCommand(
+          'workspace',
+          manifest,
+          ['info', '--json', '--packages'],
+          options,
+        );
+        const snapshot = parseWorkspaceSnapshot(result.stdout);
+        const details = snapshot.environments.map((environment) => ({
+          source: environment,
+          environment: hostSnapshotEnvironment(environment, condaPlatform),
+          resolution: hostSnapshotResolution(environment, condaPlatform),
+        }));
+        return {
+          info: { manifest: snapshot.manifest, name: snapshot.name },
+          environments: details
+            .filter(({ source }) => source.installed)
+            .map(({ environment }) => environment),
+          declaredEnvironments: details.map(({ source, resolution }) => ({
+            name: source.name,
+            features: source.features,
+            installed: source.installed,
+            ...(resolution === undefined
+              ? {}
+              : {
+                  condaDependencies: resolution.dependencies
+                    .filter(({ pypi }) => !pypi)
+                    .map(({ name }) => name),
+                }),
+          })),
+          failures: [],
+          snapshotAvailable: true,
+        };
+      } catch (error) {
+        if (options.signal?.aborted === true) {
+          throw error;
+        }
+        this.snapshotUnsupported = snapshotOptionIsUnsupported(error);
+      }
+    }
+
+    const info = await this.getWorkspaceInfo(manifest, options);
+    const discovery = await this.discoverInstalledEnvironments(
+      info.manifest,
+      condaPlatform,
+      options,
+    );
+    return { info, ...discovery, snapshotAvailable: false };
+  }
+
   public async listTasks(
     manifest: string,
     options: CondaOperationOptions = {},
@@ -140,9 +261,8 @@ export class CondaWorkspacesClient extends CondaClient {
     options: CondaOperationOptions = {},
   ): Promise<InstalledWorkspaceEnvironmentDiscovery> {
     const platform = requireValue(condaPlatform, 'condaPlatform');
-    const environments = (await this.listEnvironments(manifest, options)).filter(
-      (environment) => environment.installed,
-    );
+    const declaredEnvironments = await this.listEnvironments(manifest, options);
+    const environments = declaredEnvironments.filter((environment) => environment.installed);
     const results = await Promise.all(
       environments.map(async (environment) => {
         const [infoResult, packagesResult] = await Promise.allSettled([
@@ -173,7 +293,8 @@ export class CondaWorkspacesClient extends CondaClient {
         );
         return {
           environment: {
-            ...info,
+            name: info.name,
+            prefix: info.prefix,
             features: environment.features,
             python:
               pythonPackage === undefined
@@ -182,11 +303,17 @@ export class CondaWorkspacesClient extends CondaClient {
                     version: pythonPackage.version,
                     executable: pythonExecutable(info.prefix, platform),
                   },
+            packages: packagesResult.value,
+            directDependencies: Object.keys(info.condaDependencies).map((name) => ({
+              name,
+              pypi: false,
+            })),
           },
         };
       }),
     );
     return {
+      declaredEnvironments,
       environments: results.flatMap((result) =>
         result.environment === undefined ? [] : [result.environment],
       ),
@@ -199,7 +326,7 @@ export class CondaWorkspacesClient extends CondaClient {
     environment?: string,
     options: CondaOperationOptions = {},
   ): Promise<CommandResult> {
-    const args = ['install', '--yes'];
+    const args = ['install', '--yes', '--json'];
     if (environment !== undefined) {
       args.push('-e', requireValue(environment, 'environment'));
     }
@@ -211,7 +338,7 @@ export class CondaWorkspacesClient extends CondaClient {
     environment?: string,
     options: CondaOperationOptions = {},
   ): Promise<CommandResult> {
-    const args = ['clean', '--yes'];
+    const args = ['clean', '--yes', '--json'];
     if (environment !== undefined) {
       args.push('-e', requireValue(environment, 'environment'));
     }
@@ -246,7 +373,13 @@ export class CondaWorkspacesClient extends CondaClient {
     if (specs.length === 0) {
       throw new TypeError('specs must contain at least one dependency');
     }
-    const args = ['add', '--yes'];
+    if (options.feature !== undefined && options.environment !== undefined) {
+      throw new TypeError('feature and environment are mutually exclusive');
+    }
+    const args = ['add', '--yes', '--json'];
+    if (options.environment !== undefined) {
+      args.push('--environment', requireValue(options.environment, 'environment'));
+    }
     if (options.feature !== undefined) {
       args.push('--feature', requireValue(options.feature, 'feature'));
     }

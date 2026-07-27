@@ -10,6 +10,7 @@ import {
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
+  parseWorkspaceSnapshot,
   parseWorkspaceTasks,
 } from './parsers';
 
@@ -200,6 +201,141 @@ test('parseWorkspacePackages parses package records', () => {
       { name: 'python', version: '3.12.12', build: 'h123_0' },
     ],
   );
+});
+
+test('parseWorkspaceSnapshot keeps packages and structured dependency provenance', () => {
+  assert.deepEqual(
+    parseWorkspaceSnapshot(
+      JSON.stringify({
+        manifest: '/work/conda.toml',
+        name: 'demo',
+        environment_details: [
+          {
+            name: 'test',
+            features: ['test'],
+            prefix: '/work/.conda/envs/test',
+            installed: true,
+            resolutions: [
+              {
+                platform: 'linux-64',
+                subdir: 'linux-64',
+                conda_dependencies: {
+                  ruff: {
+                    spec: 'ruff',
+                    provenance: {
+                      table: '[workspace.dependencies]',
+                      location: {
+                        environment: null,
+                        feature: null,
+                        platform: null,
+                      },
+                    },
+                  },
+                  python: {
+                    spec: 'python >=3.12',
+                    provenance: {
+                      table: '[feature.test.dependencies]',
+                      location: {
+                        environment: null,
+                        feature: 'test',
+                        platform: null,
+                      },
+                    },
+                  },
+                },
+                pypi_dependencies: {
+                  black: {
+                    spec: 'black>=25',
+                    provenance: {
+                      table: '[environments.test.pypi-dependencies]',
+                      location: {
+                        environment: 'test',
+                        feature: null,
+                        platform: null,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            packages: [{ name: 'python', version: '3.13.5', build: 'h1_0' }],
+          },
+        ],
+      }),
+    ),
+    {
+      manifest: '/work/conda.toml',
+      name: 'demo',
+      environments: [
+        {
+          name: 'test',
+          features: ['test'],
+          prefix: '/work/.conda/envs/test',
+          installed: true,
+          resolutions: [
+            {
+              platform: 'linux-64',
+              subdir: 'linux-64',
+              dependencies: [
+                {
+                  name: 'ruff',
+                  pypi: false,
+                  table: '[workspace.dependencies]',
+                  location: {},
+                },
+                {
+                  name: 'python',
+                  pypi: false,
+                  table: '[feature.test.dependencies]',
+                  location: { feature: 'test' },
+                },
+                {
+                  name: 'black',
+                  pypi: true,
+                  table: '[environments.test.pypi-dependencies]',
+                  location: { environment: 'test' },
+                },
+              ],
+            },
+          ],
+          packages: [{ name: 'python', version: '3.13.5', build: 'h1_0' }],
+        },
+      ],
+    },
+  );
+});
+
+test('parseWorkspaceSnapshot accepts provenance without structured selectors', () => {
+  const snapshot = parseWorkspaceSnapshot(
+    JSON.stringify({
+      manifest: '/work/conda.toml',
+      name: 'demo',
+      environment_details: [
+        {
+          name: 'default',
+          features: [],
+          prefix: '/work/.conda/envs/default',
+          installed: true,
+          resolutions: [
+            {
+              platform: 'linux-64',
+              subdir: 'linux-64',
+              conda_dependencies: {
+                python: {
+                  spec: 'python',
+                  provenance: { table: '[workspace.dependencies]' },
+                },
+              },
+              pypi_dependencies: {},
+            },
+          ],
+          packages: [],
+        },
+      ],
+    }),
+  );
+
+  assert.equal(snapshot.environments[0]?.resolutions[0]?.dependencies[0]?.location, undefined);
 });
 
 test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {
