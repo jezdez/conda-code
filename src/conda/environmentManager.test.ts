@@ -2512,6 +2512,102 @@ test('workspace prefixes stay excluded through filesystem aliases', async (t) =>
   assert.equal(environments[0]?.description, 'conda workspace environment');
 });
 
+test('workspace environments activate by prefix from the current conda root', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-activation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const firstCondaRoot = path.join(root, 'first-conda');
+  const secondCondaRoot = path.join(root, 'second-conda');
+  const projectPath = path.join(root, 'project');
+  const manifestPath = path.join(projectPath, 'conda.toml');
+  const prefix = path.join(projectPath, '.conda', 'envs', 'default');
+  const python = path.join(prefix, 'bin', 'python');
+  await Promise.all([
+    createCondaInstallation(firstCondaRoot),
+    createCondaInstallation(secondCondaRoot),
+    mkdir(path.dirname(python), { recursive: true }),
+  ]);
+  await writeFile(manifestPath, '[workspace]\nname = "demo"\n');
+  await writeFile(python, '');
+
+  let resolveCondaInfo!: (info: CondaInfo | undefined) => void;
+  const enrichedCondaInfo = new Promise<CondaInfo | undefined>((resolve) => {
+    resolveCondaInfo = resolve;
+  });
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(manifestPath)];
+  vscode.__state.folders = [{ uri: project }];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    {
+      getInfo: async () => {
+        throw new Error('regular discovery must use the conda information snapshot');
+      },
+    } as unknown as CondaClient,
+    {
+      discoverWorkspace: async () => ({
+        info: { manifest: manifestPath, name: 'demo' },
+        snapshotAvailable: false,
+        declaredEnvironments: [{ name: 'default', features: [], installed: true }],
+        environments: [
+          {
+            name: 'default',
+            prefix,
+            features: [],
+            python: { version: '3.13.5', executable: python },
+            packages: [],
+            directDependencies: [{ name: 'python', pypi: false }],
+          },
+        ],
+        failures: [],
+      }),
+    } as unknown as CondaWorkspacesClient,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+    {
+      initialCondaInfo: condaInfo(firstCondaRoot),
+      enrichCondaInfo: () => enrichedCondaInfo,
+    },
+  );
+  t.after(() => manager.dispose());
+
+  const before = (await manager.getEnvironments('all')).find(
+    (environment: PythonEnvironment) => environment.environmentPath.fsPath === prefix,
+  );
+  assert.ok(before);
+  assert.deepEqual(before.execInfo.run, { executable: python });
+  assert.deepEqual(before.execInfo.activatedRun, { executable: python });
+  assert.deepEqual(before.execInfo.shellActivation?.get('bash'), [
+    {
+      executable: 'source',
+      args: [path.join(firstCondaRoot, 'etc', 'profile.d', 'conda.sh')],
+    },
+    { executable: 'conda', args: ['activate', prefix] },
+  ]);
+  assert.deepEqual(before.execInfo.shellDeactivation?.get('bash'), [
+    { executable: 'conda', args: ['deactivate'] },
+  ]);
+
+  const changed = new Promise<void>((resolve) => {
+    const listener = manager.onDidChangeEnvironments(() => {
+      listener.dispose();
+      resolve();
+    });
+  });
+  resolveCondaInfo(condaInfo(secondCondaRoot));
+  await changed;
+
+  const after = (await manager.getEnvironments('all')).find(
+    (environment: PythonEnvironment) => environment.environmentPath.fsPath === prefix,
+  );
+  assert.ok(after);
+  assert.notEqual(after.envId.id, before.envId.id);
+  assert.deepEqual(after.execInfo.shellActivation?.get('bash')?.[0], {
+    executable: 'source',
+    args: [path.join(secondCondaRoot, 'etc', 'profile.d', 'conda.sh')],
+  });
+});
+
 test('remove rejects a symlinked named environment before calling conda', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-symlink-removal-'));
   t.after(() => rm(root, { recursive: true, force: true }));
