@@ -45,6 +45,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public readonly log?: LogOutputChannel;
 
   private readonly packagesByEnvironment = new Map<string, readonly Package[]>();
+  private readonly cachedEnvironments = new Map<string, PythonEnvironment>();
   private readonly onDidChangePackagesEmitter = new EventEmitter<DidChangePackagesEventArgs>();
 
   public readonly onDidChangePackages = this.onDidChangePackagesEmitter.event;
@@ -149,11 +150,37 @@ export class CondaPackageManager implements PackageManager, Disposable {
 
   public async clearCache(): Promise<void> {
     this.packagesByEnvironment.clear();
+    this.cachedEnvironments.clear();
+  }
+
+  public resetWorkspaceCapabilities(): void {
+    this.workspaces.resetCapabilityCache();
+  }
+
+  public async refreshCachedPackages(): Promise<void> {
+    for (const [key, environment] of [...this.cachedEnvironments]) {
+      const current = this.routes.getEnvironmentForPrefix(environment.environmentPath.fsPath);
+      if (current === undefined) {
+        this.packagesByEnvironment.delete(key);
+        this.cachedEnvironments.delete(key);
+        continue;
+      }
+      if (current.envId.id !== key) {
+        const previous = this.packagesByEnvironment.get(key);
+        if (previous !== undefined) {
+          this.packagesByEnvironment.set(current.envId.id, previous);
+        }
+        this.packagesByEnvironment.delete(key);
+        this.cachedEnvironments.delete(key);
+      }
+      await this.refreshPackages(current, false);
+    }
   }
 
   public dispose(): void {
     this.onDidChangePackagesEmitter.dispose();
     this.packagesByEnvironment.clear();
+    this.cachedEnvironments.clear();
   }
 
   private requireOwnedEnvironment(environment: PythonEnvironment): PythonEnvironment {
@@ -207,6 +234,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     const previous = this.packagesByEnvironment.get(key) ?? [];
     const current = await this.loadPackages(environment, previous);
     this.packagesByEnvironment.set(key, current);
+    this.cachedEnvironments.set(key, environment);
     return [...current];
   }
 

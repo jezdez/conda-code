@@ -137,6 +137,10 @@ function hostSnapshotEnvironment(
 export class CondaWorkspacesClient extends CondaClient {
   private snapshotUnsupported = false;
 
+  public resetCapabilityCache(): void {
+    this.snapshotUnsupported = false;
+  }
+
   public async discoverWorkspace(
     manifest: string,
     condaPlatform: string,
@@ -304,10 +308,10 @@ export class CondaWorkspacesClient extends CondaClient {
                     executable: pythonExecutable(info.prefix, platform),
                   },
             packages: packagesResult.value,
-            directDependencies: Object.keys(info.condaDependencies).map((name) => ({
-              name,
-              pypi: false,
-            })),
+            directDependencies: [
+              ...Object.keys(info.condaDependencies).map((name) => ({ name, pypi: false })),
+              ...info.pypiDependencies.map((name) => ({ name, pypi: true })),
+            ],
           },
         };
       }),

@@ -39,6 +39,7 @@ export interface WorkspaceEnvironmentInfo {
   readonly name: string;
   readonly prefix: string;
   readonly condaDependencies: Readonly<Record<string, string>>;
+  readonly pypiDependencies: readonly string[];
 }
 
 export interface WorkspacePackage {
@@ -274,6 +275,9 @@ export function parseWorkspaceEnvironmentInfo(text: string): WorkspaceEnvironmen
     name: expectString(value.name, `${path}.name`),
     prefix: expectString(value.prefix, `${path}.prefix`),
     condaDependencies: expectStringRecord(value.conda_dependencies, `${path}.conda_dependencies`),
+    pypiDependencies: Object.keys(
+      expectRecord(value.pypi_dependencies, `${path}.pypi_dependencies`),
+    ),
   };
 }
 

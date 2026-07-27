@@ -174,7 +174,10 @@ test('parseWorkspaceEnvironmentInfo reads route and dependency fields', () => {
       conda_dependencies: { python: 'python >=3.12', numpy: 'numpy' },
       installed: 'ignored',
       channels: null,
-      pypi_dependencies: false,
+      pypi_dependencies: {
+        black: '>=25',
+        editable: { path: '.', editable: true },
+      },
     }),
   );
 
@@ -185,6 +188,7 @@ test('parseWorkspaceEnvironmentInfo reads route and dependency fields', () => {
       python: 'python >=3.12',
       numpy: 'numpy',
     },
+    pypiDependencies: ['black', 'editable'],
   });
 });
 

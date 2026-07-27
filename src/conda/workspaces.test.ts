@@ -354,6 +354,9 @@ test('discoverWorkspace falls back when the snapshot command is unavailable', as
     ],
   );
   assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 1);
+  client.resetCapabilityCache();
+  await client.discoverWorkspace(manifest, 'linux-64');
+  assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 2);
 });
 
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
@@ -380,7 +383,10 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
       ]);
     }
     if (command.endsWith('info -e docs --json')) {
-      return success(environmentInfo('docs', docsPrefix, 1));
+      return success({
+        ...environmentInfo('docs', docsPrefix, 1),
+        pypi_dependencies: { myst_parser: '>=4' },
+      });
     }
     if (command.endsWith('list -e docs --json')) {
       return success([{ name: 'sphinx', version: '8.2.0', build: 'pyhd8ed1ab_0' }]);
@@ -403,6 +409,10 @@ test('discoverInstalledEnvironments combines metadata and marks Python', async (
   });
   assert.equal(environments[1]?.python, null);
   assert.deepEqual(environments[1]?.features, ['docs']);
+  assert.deepEqual(environments[1]?.directDependencies, [
+    { name: 'python', pypi: false },
+    { name: 'myst_parser', pypi: true },
+  ]);
   assert.equal(
     runner.calls.some(({ args }) => args.includes('unused')),
     false,

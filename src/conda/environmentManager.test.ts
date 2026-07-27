@@ -2479,7 +2479,7 @@ test('workspace packages identify direct and transitive dependencies', async (t)
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
   } as PythonEnvironment;
-  let route = {
+  let route: CondaWorkspaceRoute = {
     projectUri,
     manifestUri,
     environmentName: 'default',
@@ -2515,7 +2515,11 @@ test('workspace packages identify direct and transitive dependencies', async (t)
     },
   } as CondaWorkspaceRouteManager;
   let liveReads = 0;
+  let capabilityResets = 0;
   const workspaces = {
+    resetCapabilityCache: () => {
+      capabilityResets += 1;
+    },
     listPackages: async () => {
       liveReads += 1;
       return [{ name: 'httpx', version: '0.28.1', build: 'py_0' }];
@@ -2564,6 +2568,23 @@ test('workspace packages identify direct and transitive dependencies', async (t)
   );
   assert.equal(liveReads, 0);
   assert.equal(routeRefreshes, 1);
+
+  const events: { readonly changes: readonly { readonly kind: string }[] }[] = [];
+  packages.onDidChangePackages((event) => events.push(event));
+  packages.resetWorkspaceCapabilities();
+  route = {
+    ...route,
+    directDependencies: [{ name: 'ruff', pypi: false }],
+    packages: [{ name: 'ruff', version: '0.12.1', build: 'py_0' }],
+  };
+  await packages.refreshCachedPackages();
+
+  assert.equal(capabilityResets, 1);
+  assert.equal((await packages.getPackages(environment))?.[0]?.name, 'ruff');
+  assert.deepEqual(
+    events.map(({ changes }) => changes.map(({ kind }) => kind)),
+    [['remove', 'add']],
+  );
 });
 
 test('regular package operations use the environment owner', async (t) => {
