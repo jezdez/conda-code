@@ -24,6 +24,7 @@ import {
 } from './conda/infoCache';
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
+import { CondaWorkspaceProjectFinder } from './conda/projects';
 import { CondaSelectionState } from './conda/selectionState';
 import {
   CONDA_WORKSPACE_TASK_TYPE,
@@ -240,6 +241,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const environmentRegistration = api.registerEnvironmentManager(environments, {
       extensionId: context.extension.id,
     });
+    const projectFinderRegistration = api.registerPythonProjectCreator(
+      new CondaWorkspaceProjectFinder(api, workspaces, { log, shouldHandleManifest }),
+    );
     const taskProvider = new CondaWorkspaceTaskProvider(workspaces, condaExecutable, {
       log,
       listWorkspaceManifests: () => environments.getWorkspaceManifests(),
@@ -271,6 +275,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
         disposed = true;
         configurationWatcher.dispose();
         taskRegistration.dispose();
+        projectFinderRegistration.dispose();
         environmentRegistration.dispose();
         packageRegistration.dispose();
         taskProvider.dispose();
