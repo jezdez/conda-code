@@ -30,14 +30,14 @@ The manifest starts with the same basic shape as:
 [workspace]
 name = "example"
 channels = ["CONFIGURED_CHANNEL"]
-platforms = ["linux-64", "osx-arm64", "win-64"]
+platforms = ["CURRENT_SUBDIR"]
 
-[dependencies]
+[environments.default.dependencies]
 python = "*"
 ```
 
-The channel and exact platforms come from the configured conda installation and
-conda-workspaces.
+The channel and current subdir come from the configured conda installation.
+Quick Create places Python in the default environment that it installs.
 
 ## Add a dependency
 
