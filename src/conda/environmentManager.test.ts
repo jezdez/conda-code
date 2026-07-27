@@ -24,6 +24,7 @@ import type {
   CondaWorkspacesClient,
   DependencyChangeOptions,
   InstalledWorkspaceEnvironment,
+  WorkspaceDependency,
 } from './workspaces';
 
 const VSCODE_STUB_URL = 'conda-code-test:vscode';
@@ -82,7 +83,13 @@ class Disposable {
   }
 }
 
-const __state = { files: [], folders: [], progress: [] };
+const __state = {
+  files: [],
+  folders: [],
+  progress: [],
+  warnings: [],
+  warningResponse: null,
+};
 const workspace = {
   findFiles: async (pattern) =>
     __state.files.filter((uri) => pattern.includes(path.basename(uri.fsPath))),
@@ -98,6 +105,10 @@ const workspace = {
 const window = {
   showInputBox: async () => undefined,
   showQuickPick: async () => undefined,
+  showWarningMessage: async (message, options, item) => {
+    __state.warnings.push({ message, options, item });
+    return __state.warningResponse === null ? item : __state.warningResponse;
+  },
   withProgress: async (options, task) => {
     __state.progress.push(options);
     return task({ report: () => undefined });
@@ -146,6 +157,12 @@ interface VscodeStub {
     files: VscodeUri[];
     folders: { readonly uri: VscodeUri }[];
     progress: { readonly location: number; readonly title: string }[];
+    warnings: {
+      readonly message: string;
+      readonly options: { readonly modal: boolean };
+      readonly item: string;
+    }[];
+    warningResponse: string | undefined | null;
   };
 }
 
@@ -264,6 +281,123 @@ function modules() {
     './selectionState.js',
   ) as typeof import('./selectionState.js');
   return { vscode, environmentManager, packageManager, CondaSelectionState };
+}
+
+interface WorkspaceChangeRecord {
+  readonly operation: 'add' | 'remove' | 'update';
+  readonly specs: readonly string[];
+  readonly options: DependencyChangeOptions;
+}
+
+interface WorkspacePackageHarnessOptions {
+  readonly directDependencies?: readonly WorkspaceDependency[];
+  readonly features?: readonly string[];
+  readonly packages?: CondaWorkspaceRoute['packages'];
+  readonly snapshotAvailable?: boolean;
+  readonly refreshRoute?: (route: CondaWorkspaceRoute, call: number) => CondaWorkspaceRoute;
+}
+
+function workspacePackageHarness(
+  vscode: VscodeStub,
+  packageManager: typeof import('./packageManager.js'),
+  options: WorkspacePackageHarnessOptions = {},
+) {
+  const projectUri = vscode.Uri.file('/work/demo');
+  const manifestUri = vscode.Uri.file('/work/demo/conda.toml');
+  const prefix = '/work/demo/.conda/envs/default';
+  const environment = {
+    envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
+    environmentPath: vscode.Uri.file(prefix),
+    displayName: 'default',
+  } as PythonEnvironment;
+  const state: { route: CondaWorkspaceRoute } = {
+    route: {
+      projectUri,
+      manifestUri,
+      environmentName: 'default',
+      features: options.features ?? [],
+      directDependencies: options.directDependencies ?? [],
+      packages: options.packages ?? [],
+      snapshotAvailable: options.snapshotAvailable ?? true,
+      prefix,
+      pythonPath: `${prefix}/bin/python`,
+    },
+  };
+  let refreshCalls = 0;
+  let refreshFailure: { readonly call: number; readonly error: Error } | undefined;
+  const routes = {
+    getRoute: () => state.route,
+    getEnvironmentForPrefix: () => environment,
+    getEnvironmentForRoute: () => environment,
+    getCondaExecutableForPrefix: () => undefined,
+    invalidateRegularDiscovery: () => undefined,
+    isConflictedPrefix: () => false,
+    refresh: async () => {
+      refreshCalls += 1;
+      if (refreshFailure?.call === refreshCalls) {
+        const error = refreshFailure.error;
+        refreshFailure = undefined;
+        throw error;
+      }
+      state.route = options.refreshRoute?.(state.route, refreshCalls) ?? state.route;
+    },
+  } as CondaWorkspaceRouteManager;
+  const changes: WorkspaceChangeRecord[] = [];
+  let failure:
+    { readonly operation: WorkspaceChangeRecord['operation']; readonly error: Error } | undefined;
+  const record = async (
+    operation: WorkspaceChangeRecord['operation'],
+    _manifest: string,
+    specs: readonly string[],
+    changeOptions: DependencyChangeOptions,
+  ) => {
+    changes.push({ operation, specs: [...specs], options: { ...changeOptions } });
+    if (failure?.operation === operation) {
+      const error = failure.error;
+      failure = undefined;
+      throw error;
+    }
+  };
+  const workspaces = {
+    addDependencies: (
+      manifest: string,
+      specs: readonly string[],
+      changeOptions: DependencyChangeOptions,
+    ) => record('add', manifest, specs, changeOptions),
+    removeDependencies: (
+      manifest: string,
+      specs: readonly string[],
+      changeOptions: DependencyChangeOptions,
+    ) => record('remove', manifest, specs, changeOptions),
+    updateDependencies: (
+      manifest: string,
+      specs: readonly string[],
+      changeOptions: DependencyChangeOptions,
+    ) => record('update', manifest, specs, changeOptions),
+  } as unknown as CondaWorkspacesClient;
+  const packages = new packageManager.CondaPackageManager(
+    pythonApi([]),
+    {} as CondaClient,
+    workspaces,
+    routes,
+  );
+  vscode.__state.warnings.length = 0;
+  vscode.__state.warningResponse = null;
+  return {
+    changes,
+    environment,
+    packages,
+    state,
+    get refreshCalls() {
+      return refreshCalls;
+    },
+    failNext(operation: WorkspaceChangeRecord['operation'], error: Error) {
+      failure = { operation, error };
+    },
+    failRefreshAt(call: number, error: Error) {
+      refreshFailure = { call, error };
+    },
+  };
 }
 
 test('resolve inspects and retains an unknown conda prefix from its Python executable', async (t) => {
@@ -2411,62 +2545,209 @@ test('remove rejects a symlinked named environment before calling conda', async 
 
 test('workspace package additions follow snapshot capabilities', async (t) => {
   const { vscode, packageManager } = modules();
-  const projectUri = vscode.Uri.file('/work/demo');
-  const manifestUri = vscode.Uri.file('/work/demo/conda.toml');
-  const prefix = '/work/demo/.conda/envs/default';
-  const environment = {
-    envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
-    environmentPath: vscode.Uri.file(prefix),
-    displayName: 'default',
-  } as PythonEnvironment;
-  let route: CondaWorkspaceRoute = {
-    projectUri,
-    manifestUri,
-    environmentName: 'default',
+  const harness = workspacePackageHarness(vscode, packageManager, {
     features: ['dev', 'test'],
-    directDependencies: [],
-    packages: [],
-    snapshotAvailable: true,
-    prefix,
-    pythonPath: `${prefix}/bin/python`,
-  };
-  const routes = {
-    getRoute: () => route,
-    getEnvironmentForPrefix: () => environment,
-    getEnvironmentForRoute: () => environment,
-    getCondaExecutableForPrefix: () => undefined,
-    invalidateRegularDiscovery: () => undefined,
-    isConflictedPrefix: () => false,
-    refresh: async () => undefined,
-  } as CondaWorkspaceRouteManager;
-  const additions: { readonly specs: readonly string[]; readonly options: object }[] = [];
-  const workspaces = {
-    addDependencies: async (
-      _manifest: string,
-      specs: readonly string[],
-      options: DependencyChangeOptions,
-    ) => additions.push({ specs: [...specs], options }),
-  } as unknown as CondaWorkspacesClient;
-  const packages = new packageManager.CondaPackageManager(
-    pythonApi([]),
-    {} as CondaClient,
-    workspaces,
-    routes,
-  );
-  t.after(() => packages.dispose());
+  });
+  t.after(() => harness.packages.dispose());
 
-  await packages.manage(environment, { install: ['pytest'] });
-  route = { ...route, snapshotAvailable: false, features: [] };
+  await harness.packages.manage(harness.environment, { install: ['pytest'] });
+  harness.state.route = {
+    ...harness.state.route,
+    snapshotAvailable: false,
+    features: [],
+  };
   await assert.rejects(
-    packages.manage(environment, { install: ['ruff'] }),
+    harness.packages.manage(harness.environment, { install: ['ruff'] }),
     /require exactly one feature/,
   );
-  route = { ...route, features: ['dev'] };
-  await packages.manage(environment, { install: ['ruff'] });
+  harness.state.route = { ...harness.state.route, features: ['dev'] };
+  await harness.packages.manage(harness.environment, { install: ['ruff'] });
 
-  assert.deepEqual(additions, [
-    { specs: ['pytest'], options: { environment: 'default' } },
-    { specs: ['ruff'], options: { feature: 'dev' } },
+  assert.deepEqual(harness.changes, [
+    {
+      operation: 'add',
+      specs: ['pytest'],
+      options: { environment: 'default' },
+    },
+    {
+      operation: 'add',
+      specs: ['ruff'],
+      options: { feature: 'dev' },
+    },
+  ]);
+});
+
+test('workspace package changes use exact structured locations', async (t) => {
+  const { vscode, packageManager } = modules();
+  const harness = workspacePackageHarness(vscode, packageManager, {
+    directDependencies: [
+      { name: 'numpy', pypi: false, location: { environment: 'default' } },
+      { name: 'rich', pypi: false, location: { feature: 'dev', platform: 'linux-64' } },
+      { name: 'build', pypi: true, location: { environment: 'default' } },
+      { name: 'python', pypi: false, location: {} },
+    ],
+  });
+  t.after(() => harness.packages.dispose());
+
+  await harness.packages.manage(harness.environment, { install: ['numpy>=2'] });
+  await harness.packages.manage(harness.environment, {
+    install: ['rich>=14'],
+    upgrade: true,
+  });
+  await harness.packages.manage(harness.environment, { uninstall: ['build'] });
+  await harness.packages.manage(harness.environment, { uninstall: ['python'] });
+  await harness.packages.manage(harness.environment, { install: ['pytest'] });
+
+  assert.deepEqual(harness.changes, [
+    {
+      operation: 'update',
+      specs: ['numpy>=2'],
+      options: { environment: 'default' },
+    },
+    {
+      operation: 'update',
+      specs: ['rich>=14'],
+      options: { feature: 'dev', platform: 'linux-64' },
+    },
+    {
+      operation: 'remove',
+      specs: ['build'],
+      options: { environment: 'default', pypi: true },
+    },
+    {
+      operation: 'remove',
+      specs: ['python'],
+      options: { pypi: false },
+    },
+    {
+      operation: 'add',
+      specs: ['pytest'],
+      options: { environment: 'default' },
+    },
+  ]);
+  assert.deepEqual(
+    vscode.__state.warnings.map(({ message, options, item }) => ({ message, options, item })),
+    [
+      {
+        message: 'Update shared workspace dependencies? This may change other environments.',
+        options: { modal: true },
+        item: 'Update',
+      },
+      {
+        message: 'Remove shared workspace dependencies? This may change other environments.',
+        options: { modal: true },
+        item: 'Remove',
+      },
+    ],
+  );
+});
+
+test('workspace mutations reject dependencies without a safe declaration target', async (t) => {
+  const { vscode, packageManager } = modules();
+  const harness = workspacePackageHarness(vscode, packageManager, {
+    directDependencies: [
+      { name: 'numpy', pypi: false },
+      { name: 'build', pypi: true, location: { environment: 'default' } },
+    ],
+  });
+  harness.state.route = {
+    ...harness.state.route,
+    packages: [{ name: 'urllib3', version: '2.5.0', build: 'py_0' }],
+  };
+  t.after(() => harness.packages.dispose());
+
+  await assert.rejects(
+    harness.packages.manage(harness.environment, { install: ['numpy>=2'] }),
+    /structured declaration location/,
+  );
+  await assert.rejects(
+    harness.packages.manage(harness.environment, { uninstall: ['numpy'] }),
+    /structured declaration location/,
+  );
+  await assert.rejects(
+    harness.packages.manage(harness.environment, { install: ['build>=1'] }),
+    /does not support PyPI dependencies/,
+  );
+  await assert.rejects(
+    harness.packages.manage(harness.environment, {
+      install: ['urllib3>=2'],
+    }),
+    /Only direct workspace dependencies can be updated/,
+  );
+  await assert.rejects(
+    harness.packages.manage(harness.environment, {
+      install: ['does-not-exist'],
+      upgrade: true,
+    }),
+    /Only direct workspace dependencies can be updated/,
+  );
+  assert.deepEqual(harness.changes, []);
+});
+
+test('workspace mutations refresh locations and reconcile failures', async (t) => {
+  const { vscode, packageManager } = modules();
+  const harness = workspacePackageHarness(vscode, packageManager, {
+    directDependencies: [{ name: 'numpy', pypi: false, location: { environment: 'default' } }],
+    refreshRoute: (route, call) =>
+      call === 1
+        ? {
+            ...route,
+            directDependencies: [
+              {
+                name: 'numpy',
+                pypi: false,
+                location: { feature: 'dev', platform: 'linux-64' },
+              },
+            ],
+          }
+        : route,
+  });
+  t.after(() => harness.packages.dispose());
+  const failure = new Error('prefix transaction failed');
+  harness.failNext('remove', failure);
+
+  await assert.rejects(
+    harness.packages.manage(harness.environment, { uninstall: ['numpy'] }),
+    (error) => error === failure,
+  );
+
+  assert.deepEqual(harness.changes, [
+    {
+      operation: 'remove',
+      specs: ['numpy'],
+      options: { feature: 'dev', platform: 'linux-64', pypi: false },
+    },
+  ]);
+  assert.equal(harness.refreshCalls, 2);
+});
+
+test('workspace mutations discard package caches after final refresh fails', async (t) => {
+  const { vscode, packageManager } = modules();
+  const harness = workspacePackageHarness(vscode, packageManager, {
+    directDependencies: [{ name: 'numpy', pypi: false, location: { environment: 'default' } }],
+    packages: [{ name: 'numpy', version: '1.0', build: 'h1_0' }],
+  });
+  t.after(() => harness.packages.dispose());
+  assert.equal((await harness.packages.getPackages(harness.environment))?.[0]?.version, '1.0');
+
+  const failure = new Error('snapshot refresh failed');
+  harness.failRefreshAt(2, failure);
+  await assert.rejects(
+    harness.packages.manage(harness.environment, { install: ['numpy>=2'] }),
+    (error) => error === failure,
+  );
+  harness.state.route = {
+    ...harness.state.route,
+    packages: [{ name: 'numpy', version: '2.0', build: 'h2_0' }],
+  };
+
+  assert.equal((await harness.packages.getPackages(harness.environment))?.[0]?.version, '2.0');
+  assert.deepEqual(harness.changes, [
+    {
+      operation: 'update',
+      specs: ['numpy>=2'],
+      options: { environment: 'default' },
+    },
   ]);
 });
 

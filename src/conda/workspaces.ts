@@ -44,6 +44,8 @@ export interface QuickstartOptions extends CondaOperationOptions {
 export interface DependencyChangeOptions extends CondaOperationOptions {
   readonly environment?: string;
   readonly feature?: string;
+  readonly platform?: string;
+  readonly pypi?: boolean;
   readonly noInstall?: boolean;
 }
 
@@ -381,18 +383,52 @@ export class CondaWorkspacesClient extends CondaClient {
     specs: readonly string[],
     options: DependencyChangeOptions = {},
   ): Promise<CommandResult> {
+    return this.changeDependencies('add', manifest, specs, options);
+  }
+
+  public removeDependencies(
+    manifest: string,
+    specs: readonly string[],
+    options: DependencyChangeOptions = {},
+  ): Promise<CommandResult> {
+    return this.changeDependencies('remove', manifest, specs, options);
+  }
+
+  public updateDependencies(
+    manifest: string,
+    specs: readonly string[],
+    options: DependencyChangeOptions = {},
+  ): Promise<CommandResult> {
+    if (options.pypi === true) {
+      throw new TypeError('workspace update does not support PyPI dependencies');
+    }
+    return this.changeDependencies('update', manifest, specs, options);
+  }
+
+  private changeDependencies(
+    operation: 'add' | 'remove' | 'update',
+    manifest: string,
+    specs: readonly string[],
+    options: DependencyChangeOptions,
+  ): Promise<CommandResult> {
     if (specs.length === 0) {
       throw new TypeError('specs must contain at least one dependency');
     }
     if (options.feature !== undefined && options.environment !== undefined) {
       throw new TypeError('feature and environment are mutually exclusive');
     }
-    const args = ['add', '--yes', '--json'];
+    const args = [operation, '--yes', '--json'];
+    if (options.pypi === true) {
+      args.push('--pypi');
+    }
     if (options.environment !== undefined) {
       args.push('--environment', requireValue(options.environment, 'environment'));
     }
     if (options.feature !== undefined) {
       args.push('--feature', requireValue(options.feature, 'feature'));
+    }
+    if (options.platform !== undefined) {
+      args.push('--platform', requireValue(options.platform, 'platform'));
     }
     if (options.noInstall === true) {
       args.push('--no-install');

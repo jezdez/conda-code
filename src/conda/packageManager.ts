@@ -23,7 +23,12 @@ import {
   CondaWorkspaceRouteManager,
   dependencyFeature,
 } from './workspaceRouting';
-import { CondaWorkspacesClient, WorkspaceDependency, WorkspacePackage } from './workspaces';
+import {
+  CondaWorkspacesClient,
+  WorkspaceDependency,
+  WorkspaceDependencyLocation,
+  WorkspacePackage,
+} from './workspaces';
 
 export interface CondaPackageManagerOptions {
   readonly log?: LogOutputChannel;
@@ -35,6 +40,17 @@ interface GetPackagesOptions {
 
 function normalizedPackageName(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function packageNameFromSpec(value: string): string {
+  const unqualified = value.trim().split('::').at(-1) ?? '';
+  return normalizedPackageName(unqualified.match(/^[A-Za-z0-9._-]+/)?.[0] ?? unqualified);
+}
+
+interface WorkspaceMutationGroup {
+  readonly location: WorkspaceDependencyLocation;
+  readonly pypi: boolean;
+  readonly specs: string[];
 }
 
 export class CondaPackageManager implements PackageManager, Disposable {
@@ -71,7 +87,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
 
     const current = this.requireOwnedEnvironment(environment);
-    const route = this.routes.getRoute(current);
+    let route = this.routes.getRoute(current);
     await window.withProgress(
       {
         location: ProgressLocation.Notification,
@@ -89,28 +105,36 @@ export class CondaPackageManager implements PackageManager, Disposable {
             });
           }
         } else {
-          if (options.upgrade === true && install.length > 0) {
+          await this.routes.refresh(route.projectUri);
+          const refreshedRoute = this.routes.getRoute(current);
+          if (refreshedRoute === undefined) {
             throw new Error(
-              `Conda workspace package upgrades are not supported. ` +
-                `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
+              `Conda workspace ownership changed for ${current.environmentPath.fsPath}`,
             );
           }
-          await this.manageWorkspace(route, uninstall, install);
+          route = refreshedRoute;
+          await this.manageWorkspace(route, uninstall, install, options.upgrade === true);
         }
 
         if (route === undefined) {
           this.routes.invalidateRegularDiscovery();
         }
-        await this.routes.refresh(route?.projectUri ?? current.environmentPath);
-        const refreshedEnvironment =
-          route === undefined
-            ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
-            : this.routes.getEnvironmentForRoute(route);
-        if (refreshedEnvironment !== undefined) {
-          if (refreshedEnvironment.envId.id !== current.envId.id) {
-            this.packagesByEnvironment.delete(current.envId.id);
+        try {
+          await this.routes.refresh(route?.projectUri ?? current.environmentPath);
+          const refreshedEnvironment =
+            route === undefined
+              ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
+              : this.routes.getEnvironmentForRoute(route);
+          if (refreshedEnvironment !== undefined) {
+            if (refreshedEnvironment.envId.id !== current.envId.id) {
+              this.packagesByEnvironment.delete(current.envId.id);
+            }
+            await this.refreshPackages(refreshedEnvironment, false);
           }
-          await this.refreshPackages(refreshedEnvironment, false);
+        } catch (error) {
+          this.packagesByEnvironment.clear();
+          this.cachedEnvironments.clear();
+          throw error;
         }
       },
     );
@@ -242,19 +266,127 @@ export class CondaPackageManager implements PackageManager, Disposable {
     route: CondaWorkspaceRoute,
     uninstall: readonly string[],
     install: readonly string[],
+    upgrade: boolean,
   ): Promise<void> {
-    if (uninstall.length > 0) {
-      throw new Error(
-        `Conda workspace package removal is not supported. Edit ${route.manifestUri.fsPath} ` +
-          'directly, then refresh Conda Code.',
-      );
+    const removals = this.workspaceMutationGroups(route, uninstall, false);
+    const updates: string[] = [];
+    const additions: string[] = [];
+    for (const spec of install) {
+      const dependency = this.workspaceDependency(route, spec);
+      if (dependency !== undefined) {
+        if (dependency.pypi) {
+          throw new Error('Conda workspace update does not support PyPI dependencies');
+        }
+        updates.push(spec);
+        continue;
+      }
+      if (upgrade || this.workspacePackageExists(route, spec)) {
+        throw new Error(`Only direct workspace dependencies can be updated: ${spec}`);
+      }
+      additions.push(spec);
     }
-    if (install.length > 0) {
-      const target = route.snapshotAvailable
-        ? { environment: route.environmentName }
-        : { feature: dependencyFeature(route.environmentName, route.features) };
-      await this.workspaces.addDependencies(route.manifestUri.fsPath, install, target);
+
+    const updateGroups = this.workspaceMutationGroups(route, updates, true);
+    const action =
+      removals.length === 0 ? 'Update' : updateGroups.length === 0 ? 'Remove' : 'Change';
+    if (!(await this.confirmSharedMutation([...removals, ...updateGroups], action))) {
+      return;
     }
+
+    try {
+      for (const group of removals) {
+        await this.workspaces.removeDependencies(route.manifestUri.fsPath, group.specs, {
+          ...group.location,
+          pypi: group.pypi,
+        });
+      }
+      for (const group of updateGroups) {
+        await this.workspaces.updateDependencies(route.manifestUri.fsPath, group.specs, {
+          ...group.location,
+        });
+      }
+      if (additions.length > 0) {
+        const target = route.snapshotAvailable
+          ? { environment: route.environmentName }
+          : { feature: dependencyFeature(route.environmentName, route.features) };
+        await this.workspaces.addDependencies(route.manifestUri.fsPath, additions, target);
+      }
+    } catch (error) {
+      try {
+        await this.routes.refresh(route.projectUri);
+      } catch (refreshError) {
+        this.log?.warn(
+          `Could not refresh after a workspace package error: ${String(refreshError)}`,
+        );
+      }
+      this.packagesByEnvironment.clear();
+      this.cachedEnvironments.clear();
+      throw error;
+    }
+  }
+
+  private workspaceDependency(
+    route: CondaWorkspaceRoute,
+    spec: string,
+  ): WorkspaceDependency | undefined {
+    const name = packageNameFromSpec(spec);
+    return route.directDependencies.find(
+      (dependency) => normalizedPackageName(dependency.name) === name,
+    );
+  }
+
+  private workspacePackageExists(route: CondaWorkspaceRoute, spec: string): boolean {
+    const name = packageNameFromSpec(spec);
+    return route.packages.some((pkg) => normalizedPackageName(pkg.name) === name);
+  }
+
+  private workspaceMutationGroups(
+    route: CondaWorkspaceRoute,
+    specs: readonly string[],
+    preserveSpecs: boolean,
+  ): WorkspaceMutationGroup[] {
+    const groups = new Map<string, WorkspaceMutationGroup>();
+    for (const spec of specs) {
+      const dependency = this.workspaceDependency(route, spec);
+      if (dependency === undefined) {
+        throw new Error(`Only direct workspace dependencies can be changed: ${spec}`);
+      }
+      if (dependency.location === undefined) {
+        throw new Error(
+          `Conda workspace dependency changes require a structured declaration location. ` +
+            `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
+        );
+      }
+
+      const key = JSON.stringify([dependency.pypi, dependency.location]);
+      const group = groups.get(key);
+      const value = preserveSpecs ? spec : dependency.name;
+      if (group === undefined) {
+        groups.set(key, {
+          location: dependency.location,
+          pypi: dependency.pypi,
+          specs: [value],
+        });
+      } else {
+        group.specs.push(value);
+      }
+    }
+    return [...groups.values()];
+  }
+
+  private async confirmSharedMutation(
+    groups: readonly WorkspaceMutationGroup[],
+    action: 'Change' | 'Remove' | 'Update',
+  ): Promise<boolean> {
+    if (groups.every(({ location }) => location.environment !== undefined)) {
+      return true;
+    }
+    const choice = await window.showWarningMessage(
+      `${action} shared workspace dependencies? This may change other environments.`,
+      { modal: true },
+      action,
+    );
+    return choice === action;
   }
 
   private async loadPackages(
