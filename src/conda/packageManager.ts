@@ -266,18 +266,26 @@ export class CondaPackageManager implements PackageManager, Disposable {
     directDependencies: readonly string[],
   ): PackageInfo[] {
     const directNames = new Set(directDependencies.map(normalizedPackageName));
-    return workspacePackages.map((pkg) => {
-      const isTransitive = !directNames.has(normalizedPackageName(pkg.name));
-      const details = [
-        pkg.build === '' ? undefined : `Build ${pkg.build}`,
-        isTransitive ? 'Transitive dependency' : 'Direct dependency',
-      ].filter((value): value is string => value !== undefined);
-      return {
-        name: pkg.name,
-        displayName: pkg.name,
-        version: pkg.version,
-        description: details.join(', '),
-      };
-    });
+    return workspacePackages
+      .map((pkg) => {
+        const isTransitive = !directNames.has(normalizedPackageName(pkg.name));
+        const details = [
+          pkg.build === '' ? undefined : `Build ${pkg.build}`,
+          isTransitive ? 'Transitive dependency' : 'Direct dependency',
+        ].filter((value): value is string => value !== undefined);
+        return {
+          name: pkg.name,
+          displayName: pkg.name,
+          version: pkg.version,
+          description: details.join(', '),
+          isTransitive,
+        };
+      })
+      .sort((left, right) => {
+        if (left.isTransitive !== right.isTransitive) {
+          return left.isTransitive ? 1 : -1;
+        }
+        return left.name.localeCompare(right.name);
+      });
   }
 }

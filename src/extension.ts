@@ -6,6 +6,7 @@ import {
   Disposable,
   ExtensionContext,
   extensions,
+  ProgressLocation,
   RelativePattern,
   tasks as vscodeTasks,
   Uri,
@@ -24,7 +25,11 @@ import {
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
 import { CondaSelectionState } from './conda/selectionState';
-import { CONDA_WORKSPACE_TASK_TYPE, CondaWorkspaceTaskProvider } from './conda/tasks';
+import {
+  CONDA_WORKSPACE_TASK_TYPE,
+  CondaWorkspaceTaskProvider,
+  runWorkspaceTask,
+} from './conda/tasks';
 import { normalizeEnvironmentPath } from './conda/workspaceRouting';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
@@ -351,6 +356,39 @@ export async function activate(context: ExtensionContext): Promise<void> {
     watcher.onDidDelete(scheduleRefresh),
     api.onDidChangePythonProjects(() => scheduleRefresh()),
     commands.registerCommand('conda-code.refresh', refreshImmediately),
+    commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
+      runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
+    ),
+    commands.registerCommand('conda-code.createEnvironmentFromFile', async (definition?: Uri) => {
+      const source = definition ?? window.activeTextEditor?.document.uri;
+      const current = runtime;
+      if (source === undefined || current === undefined) {
+        await window.showErrorMessage('Open a supported conda environment file first.');
+        return;
+      }
+
+      try {
+        const created = await window.withProgress(
+          {
+            location: ProgressLocation.Notification,
+            title: `Creating an environment from ${path.basename(source.fsPath)}`,
+          },
+          async (progress) => {
+            progress.report({ message: 'Conda is solving and installing packages' });
+            return current.environments.createFromDefinitionFile(source);
+          },
+        );
+        if (created !== undefined) {
+          void window.showInformationMessage(
+            `Created ${created.name} from ${path.basename(source.fsPath)}.`,
+          );
+        }
+      } catch (error) {
+        const message = messageFromError(error);
+        log.error(`Environment creation failed: ${message}`);
+        void window.showErrorMessage(`Could not create the conda environment: ${message}`);
+      }
+    }),
     workspace.onDidChangeConfiguration((event) => {
       if (
         !event.affectsConfiguration('conda-code.condaExecutable') &&

@@ -311,7 +311,9 @@ export class CondaEnvironmentManager
   public quickCreateConfig() {
     return {
       description: 'Create a conda environment for this project',
-      detail: 'Uses a project environment definition when present, otherwise creates conda.toml',
+      detail:
+        'Uses environment.yml or another supported project file when present. ' +
+        'Otherwise creates a conda workspace.',
     };
   }
 
@@ -369,6 +371,38 @@ export class CondaEnvironmentManager
       return this.createProjectPrefix(projectUri, options);
     }
     return this.createNamedEnvironment(projectUri, options);
+  }
+
+  public async createFromDefinitionFile(
+    definitionFile: Uri,
+  ): Promise<PythonEnvironment | undefined> {
+    const filename = path.basename(definitionFile.fsPath);
+    if (
+      definitionFile.scheme !== 'file' ||
+      !PROJECT_ENVIRONMENT_FILE_NAMES.includes(
+        filename as (typeof PROJECT_ENVIRONMENT_FILE_NAMES)[number],
+      )
+    ) {
+      throw new Error(`${definitionFile.fsPath} is not a supported project environment file`);
+    }
+
+    const projectUri = this.api.getPythonProject(definitionFile)?.uri;
+    if (
+      projectUri?.scheme !== 'file' ||
+      normalizeEnvironmentPath(path.dirname(definitionFile.fsPath)) !==
+        normalizeEnvironmentPath(projectUri.fsPath)
+    ) {
+      throw new Error(`${filename} must be at the root of a registered Python project`);
+    }
+
+    await this.refresh(projectUri);
+    const created = await this.createFromProjectDefinition(projectUri, definitionFile, {
+      quickCreate: true,
+    });
+    if (created !== undefined) {
+      await this.set(projectUri, created);
+    }
+    return created;
   }
 
   public async remove(environment: PythonEnvironment): Promise<void> {

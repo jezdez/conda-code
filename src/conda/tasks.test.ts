@@ -50,20 +50,32 @@ class ProcessExecution {
 const TaskScope = { Global: 1, Workspace: 2 };
 
 class Task {
-  constructor(definition, scope, name, source, execution, problemMatchers = []) {
+  constructor(definition, scope, name, source, execution, problemMatchers) {
     this.definition = definition;
     this.scope = scope;
     this.name = name;
     this.source = source;
     this.execution = execution;
-    this.problemMatchers = Array.isArray(problemMatchers) ? problemMatchers : [problemMatchers];
+    this.problemMatchers =
+      problemMatchers === undefined
+        ? undefined
+        : Array.isArray(problemMatchers)
+          ? problemMatchers
+          : [problemMatchers];
     this.isBackground = false;
     this.presentationOptions = {};
     this.runOptions = {};
   }
 }
 
-const __state = { files: [], folders: [] };
+const __state = {
+  files: [],
+  folders: [],
+  quickPickIndex: undefined,
+  quickPickCalls: [],
+  messages: [],
+  executedTasks: [],
+};
 const workspace = {
   findFiles: async (pattern) =>
     __state.files.filter((uri) => pattern.includes(path.basename(uri.fsPath))),
@@ -79,7 +91,25 @@ const workspace = {
   },
 };
 
-module.exports = { __state, EventEmitter, ProcessExecution, Task, TaskScope, Uri, workspace };
+const window = {
+  showInformationMessage: async (message) => {
+    __state.messages.push(message);
+    return undefined;
+  },
+  showQuickPick: async (items, options) => {
+    __state.quickPickCalls.push({ items, options });
+    return __state.quickPickIndex === undefined ? undefined : items[__state.quickPickIndex];
+  },
+};
+
+const tasks = {
+  executeTask: async (task) => {
+    __state.executedTasks.push(task);
+    return { task };
+  },
+};
+
+module.exports = { __state, EventEmitter, ProcessExecution, Task, TaskScope, Uri, tasks, window, workspace };
 `;
 
 registerHooks({
@@ -120,6 +150,13 @@ interface VscodeStub {
       readonly name: string;
       readonly index: number;
     }[];
+    quickPickIndex: number | undefined;
+    quickPickCalls: {
+      readonly items: readonly { readonly label: string; readonly description?: string }[];
+      readonly options: Record<string, unknown>;
+    }[];
+    messages: string[];
+    executedTasks: VscodeTask[];
   };
 }
 
@@ -198,6 +235,7 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
   assert.equal(task?.scope, folder);
   assert.equal(task?.source, 'conda-workspaces');
   assert.equal(task?.detail, 'Build documentation (project/conda.toml)');
+  assert.deepEqual(task?.problemMatchers, []);
   assert.equal(task?.execution && 'process' in task.execution && task.execution.process, '_conda');
   assert.deepEqual(task?.execution && 'args' in task.execution && task.execution.args, [
     'task',
@@ -211,6 +249,112 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
   assert.deepEqual(task?.execution && 'options' in task.execution && task.execution.options, {
     cwd: path.dirname(condaManifest.fsPath),
   });
+});
+
+test('provider lists tasks for only the requested confirmed manifest', async (t) => {
+  const { vscode, tasks } = modules();
+  const root = path.resolve('/work');
+  const folder = { uri: vscode.Uri.file(root), name: 'work', index: 0 };
+  const firstManifest = vscode.Uri.file(path.join(root, 'first', 'conda.toml'));
+  const secondManifest = vscode.Uri.file(path.join(root, 'second', 'pyproject.toml'));
+  vscode.__state.folders = [folder];
+  const calls: string[] = [];
+  const provider = new tasks.CondaWorkspaceTaskProvider(
+    workspaceClient(async (manifest) => {
+      calls.push(manifest);
+      return {
+        file: manifest,
+        tasks: [
+          { name: 'check', description: 'Check the project' },
+          { name: 'user-check', source: 'user' },
+        ],
+      };
+    }),
+    'conda',
+    {
+      listWorkspaceManifests: async () => [firstManifest, secondManifest],
+      selectedWorkspaceEnvironment: async () => 'dev',
+    },
+  );
+  t.after(() => provider.dispose());
+
+  const detected = await provider.provideTasksForManifest(secondManifest);
+
+  assert.deepEqual(calls, [secondManifest.fsPath]);
+  assert.equal(detected?.length, 1);
+  assert.deepEqual(detected?.[0]?.definition, {
+    type: tasks.CONDA_WORKSPACE_TASK_TYPE,
+    task: 'check',
+    file: 'second/pyproject.toml',
+  });
+  assert.deepEqual(
+    detected?.[0]?.execution && 'args' in detected[0].execution && detected[0].execution.args,
+    ['task', '--file', secondManifest.fsPath, 'run', '--environment=dev', '--', 'check'],
+  );
+});
+
+test('run workspace task selects and executes a task from the active manifest', async (t) => {
+  const { vscode, tasks } = modules();
+  const root = path.resolve('/work');
+  const manifest = vscode.Uri.file(path.join(root, 'conda.toml'));
+  vscode.__state.folders = [{ uri: vscode.Uri.file(root), name: 'work', index: 0 }];
+  vscode.__state.quickPickIndex = 1;
+  vscode.__state.quickPickCalls = [];
+  vscode.__state.messages = [];
+  vscode.__state.executedTasks = [];
+  const provider = new tasks.CondaWorkspaceTaskProvider(
+    workspaceClient(async (file) => ({
+      file,
+      tasks: [
+        { name: 'check', description: 'Check the project' },
+        { name: 'docs', description: 'Build the docs' },
+      ],
+    })),
+    'conda',
+    { listWorkspaceManifests: async () => [manifest] },
+  );
+  t.after(() => provider.dispose());
+
+  await tasks.runWorkspaceTask(provider, manifest);
+
+  assert.deepEqual(
+    vscode.__state.quickPickCalls[0]?.items.map(({ label, description }) => ({
+      label,
+      description,
+    })),
+    [
+      { label: 'check', description: 'Check the project (conda.toml)' },
+      { label: 'docs', description: 'Build the docs (conda.toml)' },
+    ],
+  );
+  assert.equal(vscode.__state.executedTasks.length, 1);
+  assert.equal(vscode.__state.executedTasks[0]?.name, 'docs');
+  assert.deepEqual(vscode.__state.messages, []);
+});
+
+test('run workspace task refuses an unconfirmed manifest', async (t) => {
+  const { vscode, tasks } = modules();
+  const manifest = vscode.Uri.file(path.resolve('/work/pyproject.toml'));
+  vscode.__state.quickPickIndex = 0;
+  vscode.__state.quickPickCalls = [];
+  vscode.__state.messages = [];
+  vscode.__state.executedTasks = [];
+  const provider = new tasks.CondaWorkspaceTaskProvider(
+    workspaceClient(async () => {
+      throw new Error('an unconfirmed manifest must not be inspected');
+    }),
+    'conda',
+    { listWorkspaceManifests: async () => [] },
+  );
+  t.after(() => provider.dispose());
+
+  await tasks.runWorkspaceTask(provider, manifest);
+
+  assert.deepEqual(vscode.__state.messages, [
+    'The active file is not a conda workspace manifest managed by Conda Code.',
+  ]);
+  assert.deepEqual(vscode.__state.quickPickCalls, []);
+  assert.deepEqual(vscode.__state.executedTasks, []);
 });
 
 test('provideTasks coalesces discovery and caches it until refresh', async (t) => {

@@ -5,11 +5,14 @@ import {
   Disposable,
   LogOutputChannel,
   ProcessExecution,
+  QuickPickItem,
   Task,
   TaskDefinition,
   TaskProvider,
   TaskScope,
+  tasks as vscodeTasks,
   Uri,
+  window,
   WorkspaceFolder,
   workspace,
 } from 'vscode';
@@ -42,6 +45,10 @@ interface DiscoveredManifestTasks {
   readonly manifest: Uri;
   readonly folder: WorkspaceFolder | undefined;
   readonly tasks: readonly WorkspaceTask[];
+}
+
+interface WorkspaceTaskQuickPickItem extends QuickPickItem {
+  readonly task: Task;
 }
 
 function errorMessage(error: unknown): string {
@@ -104,6 +111,24 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
       );
     }
     return token.isCancellationRequested ? [] : tasks;
+  }
+
+  public async provideTasksForManifest(manifest: Uri): Promise<Task[] | undefined> {
+    const manifests = await this.options.listWorkspaceManifests();
+    const confirmedManifest = manifests.find(
+      (candidate) =>
+        normalizeEnvironmentPath(candidate.fsPath) === normalizeEnvironmentPath(manifest.fsPath),
+    );
+    if (confirmedManifest === undefined) {
+      return undefined;
+    }
+
+    const listing = await this.workspaces.listTasks(confirmedManifest.fsPath);
+    const environment = await this.selectedWorkspaceEnvironment(confirmedManifest);
+    const folder = workspace.getWorkspaceFolder(confirmedManifest);
+    return listing.tasks
+      .filter((task) => task.source !== 'user')
+      .map((task) => this.createTask(confirmedManifest, task, folder, environment));
   }
 
   public async resolveTask(task: Task, token: CancellationToken): Promise<Task | undefined> {
@@ -252,6 +277,7 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
       workspaceTask.name,
       TASK_SOURCE,
       this.execution(manifest.fsPath, workspaceTask.name, environment),
+      [],
     );
     task.detail =
       workspaceTask.description === undefined ? file : `${workspaceTask.description} (${file})`;
@@ -285,5 +311,52 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
       );
       return undefined;
     }
+  }
+}
+
+export async function runWorkspaceTask(
+  provider: CondaWorkspaceTaskProvider | undefined,
+  manifest: Uri | undefined,
+): Promise<void> {
+  if (
+    provider === undefined ||
+    manifest === undefined ||
+    manifest.scheme !== 'file' ||
+    !MANIFEST_NAMES.includes(
+      path.basename(manifest.fsPath).toLowerCase() as (typeof MANIFEST_NAMES)[number],
+    )
+  ) {
+    await window.showInformationMessage(
+      'Open a conda workspace manifest before running a workspace task.',
+    );
+    return;
+  }
+
+  const availableTasks = await provider.provideTasksForManifest(manifest);
+  if (availableTasks === undefined) {
+    await window.showInformationMessage(
+      'The active file is not a conda workspace manifest managed by Conda Code.',
+    );
+    return;
+  }
+  if (availableTasks.length === 0) {
+    await window.showInformationMessage('The active conda workspace declares no tasks.');
+    return;
+  }
+
+  const selected = await window.showQuickPick<WorkspaceTaskQuickPickItem>(
+    availableTasks.map((task) => ({
+      label: task.name,
+      description: task.detail,
+      task,
+    })),
+    {
+      title: 'Run Workspace Task',
+      placeHolder: 'Select a task declared by conda-workspaces',
+      matchOnDescription: true,
+    },
+  );
+  if (selected !== undefined) {
+    await vscodeTasks.executeTask(selected.task);
   }
 }

@@ -58,8 +58,32 @@
       {
         "command": "conda-code.refresh",
         "title": "Conda Code: Refresh Environments"
+      },
+      {
+        "command": "conda-code.runWorkspaceTask",
+        "title": "Conda Code: Run Workspace Task",
+        "icon": "$(play)"
+      },
+      {
+        "command": "conda-code.createEnvironmentFromFile",
+        "title": "Conda Code: Create Environment from File",
+        "icon": "$(add)"
       }
     ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "conda-code.runWorkspaceTask",
+          "group": "navigation",
+          "when": "resourceScheme == file && (resourceFilename == conda.toml || resourceFilename == pixi.toml || resourceFilename == pyproject.toml)"
+        },
+        {
+          "command": "conda-code.createEnvironmentFromFile",
+          "group": "navigation",
+          "when": "resourceScheme == file && (resourceFilename == environment.yml || resourceFilename == environment.yaml || resourceFilename == explicit.txt || resourceFilename == conda-lock.yml || resourceFilename == conda-lock.yaml)"
+        }
+      ]
+    },
     "taskDefinitions": [
       {
         "type": "conda-workspace",
