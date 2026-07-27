@@ -81,12 +81,24 @@ export class CondaPackageManager implements PackageManager, Disposable {
     options: PackageManagementOptions,
   ): Promise<void> {
     const uninstall = options.uninstall?.filter((spec) => spec.trim() !== '') ?? [];
-    const install = options.install?.filter((spec) => spec.trim() !== '') ?? [];
+    let install = options.install?.filter((spec) => spec.trim() !== '') ?? [];
+    const current = this.requireOwnedEnvironment(environment);
     if (uninstall.length === 0 && install.length === 0) {
-      return;
+      const spec = await window.showInputBox({
+        title: `Manage a package in ${current.displayName}`,
+        prompt: 'Enter one conda package specification to install or update',
+        placeHolder: 'numpy>=2 or conda-forge::numpy >=2,<3',
+        ignoreFocusOut: true,
+        validateInput: (value) =>
+          value.trim() === '' ? 'Enter a conda package specification' : undefined,
+      });
+      const trimmedSpec = spec?.trim();
+      if (trimmedSpec === undefined || trimmedSpec === '') {
+        return;
+      }
+      install = [trimmedSpec];
     }
 
-    const current = this.requireOwnedEnvironment(environment);
     let route = this.routes.getRoute(current);
     await window.withProgress(
       {

@@ -13,6 +13,8 @@
 - Refuse ambiguous zero-feature package additions with 0.7 metadata instead of
   changing a declaration an isolated environment may not inherit
 - Show a VS Code progress notification while package changes are applied
+- Prompt for one complete conda package specification when Python Environments
+  opens **Manage Packages** without an explicit package change
 
 ## 0.5.0
 
