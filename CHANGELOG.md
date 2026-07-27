@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Use the complete conda-workspaces snapshot when available, reducing workspace
+  environment discovery to one conda process and reusing its package records
+- Route new dependencies to the selected workspace environment when supported
+- Keep conda-workspaces 0.7 compatibility when the complete snapshot is
+  unavailable
+- Refuse ambiguous zero-feature package additions with 0.7 metadata instead of
+  changing a declaration an isolated environment may not inherit
 - Show a VS Code progress notification while package changes are applied
 
 ## 0.5.0

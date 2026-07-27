@@ -19,14 +19,18 @@ The search excludes `.git`, `.conda`, `.pixi`, and `node_modules`.
 The candidate directory must be an exact Python project root registered with
 Python Environments. A manifest elsewhere in the VS Code window is ignored.
 
-Conda Code validates each candidate with:
+Conda Code first asks for a complete workspace snapshot:
 
 ```console
-conda workspace --file /path/to/manifest info --json
+conda workspace --file /path/to/manifest info --json --packages
 ```
 
-Only installed environments are published. A declared but uninstalled
-environment becomes available through the environment creation flow.
+When supported, that one response supplies the manifest identity, environment
+composition, dependency provenance, prefixes, and installed package records.
+Conda Code otherwise uses the conda-workspaces 0.7 commands for the same
+discovery. Only installed environments are published. A declared but
+uninstalled environment becomes available through the environment creation
+flow.
 
 ## Pixi Code rule
 
@@ -42,7 +46,8 @@ Skipped manifests contribute neither environments nor tasks.
 ## Prefix routing
 
 Each published workspace environment records its manifest, project, environment
-name, features, direct conda dependencies, prefix, and Python path.
+name, features, direct dependencies, installed packages, prefix, and Python
+path.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code
