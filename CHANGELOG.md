@@ -19,6 +19,8 @@
   targeting each environment's exact installed prefix
 - Add **Find conda workspace projects** to the Python Environments project
   creator flow, validating selected manifests before registration
+- Limit file and project refreshes to the affected registered workspaces while
+  retaining global environment reconciliation
 
 ## 0.5.0
 
