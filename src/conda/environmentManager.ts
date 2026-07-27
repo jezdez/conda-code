@@ -782,7 +782,11 @@ export class CondaEnvironmentManager
         this.environmentItemsByPrefix.clear();
         return;
       }
-      const workspaceDiscovery = await this.discoverWorkspaces(condaInfo.platform, signal);
+      const workspaceDiscovery = await this.discoverWorkspaces(
+        condaInfo.platform,
+        condaInfo.rootPrefix,
+        signal,
+      );
       if (this.disposed || signal.aborted) {
         this.environmentItemsByPrefix.clear();
         return;
@@ -1258,6 +1262,7 @@ export class CondaEnvironmentManager
 
   private async discoverWorkspaces(
     condaPlatform: string,
+    condaRootPrefix: string,
     signal: AbortSignal,
   ): Promise<WorkspaceDiscovery> {
     const manifestGroups = await Promise.all(
@@ -1314,7 +1319,13 @@ export class CondaEnvironmentManager
         }
         const converted = discovery.environments.map((environment) => ({
           source: environment,
-          item: this.toWorkspacePythonEnvironment(environment, projectUri, manifestUri, info),
+          item: this.toWorkspacePythonEnvironment(
+            environment,
+            projectUri,
+            manifestUri,
+            info,
+            condaRootPrefix,
+          ),
         }));
         const previous = [...this.workspacesByProject.values()].find(
           (entry) =>
@@ -1392,6 +1403,7 @@ export class CondaEnvironmentManager
     projectUri: Uri,
     manifestUri: Uri,
     workspaceInfo: WorkspaceInfo,
+    condaRootPrefix: string,
   ): PythonEnvironment {
     const prefix = path.normalize(path.resolve(environment.prefix));
     const version = environment.python?.version ?? 'no-python';
@@ -1410,6 +1422,7 @@ export class CondaEnvironmentManager
       execInfo: {
         run: { executable: pythonPath },
         activatedRun: { executable: pythonPath },
+        ...condaShellCommands(condaRootPrefix, prefix),
       },
       sysPrefix: prefix,
       group: {
@@ -1425,6 +1438,7 @@ export class CondaEnvironmentManager
       workspaceInfo.name,
       projectUri.toString(true),
       manifestUri.toString(true),
+      condaRootPrefix,
     ]);
   }
 

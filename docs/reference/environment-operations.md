@@ -105,9 +105,12 @@ configured default packages.
 
 ## Execution
 
-Regular environments advertise shell activation for Bash, Zsh, POSIX sh, Fish,
-PowerShell Core (`pwsh`), Git Bash, and Command Prompt. Other shells use the
-absolute Python interpreter.
+Regular environments with an identified owner and workspace environments
+advertise the same conda shell activation and deactivation commands for Bash,
+Zsh, POSIX sh, Fish, PowerShell Core (`pwsh`), Git Bash, and Command Prompt.
+Workspace activation targets the exact installed prefix through the configured
+conda installation used for workspace discovery.
 
-Workspace environments use the absolute interpreter directly. Conda Code does
-not advertise `conda workspace shell` because it opens a nested blocking shell.
+Direct execution still uses the environment's absolute Python interpreter.
+Conda Code does not advertise `conda workspace shell` because it opens a nested
+blocking shell.
