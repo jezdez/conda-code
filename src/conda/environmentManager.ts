@@ -281,7 +281,9 @@ export class CondaEnvironmentManager
   private hasInitialized = false;
   private refreshQueue: Promise<void> | undefined;
   private refreshAbortController: AbortController | undefined;
+  private refreshScope: RefreshEnvironmentsScope;
   private refreshPending = false;
+  private refreshPendingScope: RefreshEnvironmentsScope;
   private clearQueue: Promise<void> | undefined;
   private clearing = false;
   private condaInfoEnrichment: Promise<void> | undefined;
@@ -454,7 +456,6 @@ export class CondaEnvironmentManager
   }
 
   public refresh(scope: RefreshEnvironmentsScope): Promise<void> {
-    void scope;
     if (this.disposed) {
       return Promise.resolve();
     }
@@ -462,6 +463,16 @@ export class CondaEnvironmentManager
       return this.clearQueue.then(() => this.refresh(scope));
     }
     if (this.refreshQueue !== undefined) {
+      const queuedScope = this.refreshPending ? this.refreshPendingScope : this.refreshScope;
+      if (
+        scope === undefined ||
+        queuedScope === undefined ||
+        uriKey(scope) !== uriKey(queuedScope)
+      ) {
+        this.refreshPendingScope = undefined;
+      } else {
+        this.refreshPendingScope = queuedScope;
+      }
       this.refreshPending = true;
       return this.refreshQueue;
     }
@@ -469,20 +480,26 @@ export class CondaEnvironmentManager
     const abortController = new AbortController();
     this.refreshAbortController = abortController;
     const refresh = (async () => {
+      let nextScope = scope;
       do {
+        this.refreshScope = nextScope;
         this.refreshPending = false;
+        this.refreshPendingScope = undefined;
         try {
-          await this.refreshAll(abortController.signal);
+          await this.refreshAll(nextScope, abortController.signal);
         } catch (error) {
           if (!this.refreshPending) {
             throw error;
           }
         }
+        nextScope = this.refreshPendingScope;
       } while (this.refreshPending);
     })();
     const queued = refresh.finally(() => {
       if (this.refreshQueue === queued) {
         this.refreshQueue = undefined;
+        this.refreshScope = undefined;
+        this.refreshPendingScope = undefined;
         if (this.refreshAbortController === abortController) {
           this.refreshAbortController = undefined;
         }
@@ -651,7 +668,9 @@ export class CondaEnvironmentManager
       const active = new Map(this.activeByScope);
 
       this.hasInitialized = false;
+      this.refreshScope = undefined;
       this.refreshPending = false;
+      this.refreshPendingScope = undefined;
       this.condaInfo = undefined;
       this.condaInfoPrimaryRootResolved = false;
       this.regularDiscoveryCache = undefined;
@@ -753,7 +772,7 @@ export class CondaEnvironmentManager
     await this.refreshQueue;
   }
 
-  private async refreshAll(signal: AbortSignal): Promise<void> {
+  private async refreshAll(scope: RefreshEnvironmentsScope, signal: AbortSignal): Promise<void> {
     if (this.disposed || signal.aborted) {
       return;
     }
@@ -782,9 +801,11 @@ export class CondaEnvironmentManager
         this.environmentItemsByPrefix.clear();
         return;
       }
+      const refreshedProjectKeys = this.workspaceProjectKeysForRefresh(scope);
       const workspaceDiscovery = await this.discoverWorkspaces(
         condaInfo.platform,
         condaInfo.rootPrefix,
+        refreshedProjectKeys,
         signal,
       );
       if (this.disposed || signal.aborted) {
@@ -818,11 +839,35 @@ export class CondaEnvironmentManager
           normalizeEnvironmentPath(entry.manifestUri.fsPath),
         ),
       );
-      const preservedWorkspaces = [...this.workspacesByProject.values()].filter((entry) => {
-        const manifestKey = normalizeEnvironmentPath(entry.manifestUri.fsPath);
-        return failedManifestKeys.has(manifestKey) && !successfulManifestKeys.has(manifestKey);
+      const restoreWorkspaceEnvironments = (entry: DiscoveredWorkspace): DiscoveredWorkspace => ({
+        ...entry,
+        environments: [...entry.detailsByPrefix.values()].map((environment) =>
+          this.toWorkspacePythonEnvironment(
+            environment,
+            entry.projectUri,
+            entry.manifestUri,
+            entry.info,
+            condaInfo.rootPrefix,
+          ),
+        ),
       });
-      const workspaceCandidates = [...workspaceDiscovery.workspaces, ...preservedWorkspaces];
+      const preservedWorkspaces = [...this.workspacesByProject.values()]
+        .filter((entry) => {
+          const manifestKey = normalizeEnvironmentPath(entry.manifestUri.fsPath);
+          return failedManifestKeys.has(manifestKey) && !successfulManifestKeys.has(manifestKey);
+        })
+        .map(restoreWorkspaceEnvironments);
+      const untouchedWorkspaces =
+        refreshedProjectKeys === undefined
+          ? []
+          : [...this.workspacesByProject.values()]
+              .filter((entry) => !refreshedProjectKeys.has(uriKey(entry.projectUri)))
+              .map(restoreWorkspaceEnvironments);
+      const workspaceCandidates = [
+        ...workspaceDiscovery.workspaces,
+        ...preservedWorkspaces,
+        ...untouchedWorkspaces,
+      ].sort((left, right) => left.projectUri.fsPath.localeCompare(right.projectUri.fsPath));
       const currentRoutesByManifest = new Map<string, readonly CondaWorkspaceRoute[]>();
       for (const entry of workspaceCandidates) {
         currentRoutesByManifest.set(
@@ -873,7 +918,17 @@ export class CondaEnvironmentManager
           entry.environmentFailures.some((failure) => failure.prefix === undefined),
         )
         .map((entry) => entry.projectUri);
-      const reservedWorkspaceProjectRoots = [...failedProjectRoots, ...incompleteProjectRoots];
+      const untouchedReservedProjectRoots =
+        refreshedProjectKeys === undefined
+          ? []
+          : this.reservedWorkspaceProjectRoots.filter(
+              (project) => !refreshedProjectKeys.has(uriKey(project)),
+            );
+      const reservedWorkspaceProjectRoots = [
+        ...untouchedReservedProjectRoots,
+        ...failedProjectRoots,
+        ...incompleteProjectRoots,
+      ];
       const regular = this.regularEnvironmentsFromDiscovery(
         regularDiscovery,
         workspacePrefixes,
@@ -1260,9 +1315,31 @@ export class CondaEnvironmentManager
     ]);
   }
 
+  private workspaceProjectKeysForRefresh(
+    scope: RefreshEnvironmentsScope,
+  ): ReadonlySet<string> | undefined {
+    if (scope === undefined) {
+      return undefined;
+    }
+    const projectKeys = new Set<string>();
+    if (scope.scheme === 'file') {
+      for (const project of this.api.getPythonProjects()) {
+        if (project.uri.scheme === 'file' && isWithin(scope, project.uri)) {
+          projectKeys.add(uriKey(project.uri));
+        }
+      }
+    }
+    const project = this.api.getPythonProject(scope)?.uri;
+    if (project?.scheme === 'file') {
+      projectKeys.add(uriKey(project));
+    }
+    return projectKeys.size === 0 ? undefined : projectKeys;
+  }
+
   private async discoverWorkspaces(
     condaPlatform: string,
     condaRootPrefix: string,
+    refreshedProjectKeys: ReadonlySet<string> | undefined,
     signal: AbortSignal,
   ): Promise<WorkspaceDiscovery> {
     const manifestGroups = await Promise.all(
@@ -1293,6 +1370,12 @@ export class CondaEnvironmentManager
       }
 
       let candidateProject: Uri | undefined;
+      if (refreshedProjectKeys !== undefined) {
+        candidateProject = this.exactPythonProject(Uri.file(path.dirname(candidate.fsPath)));
+        if (candidateProject === undefined || !refreshedProjectKeys.has(uriKey(candidateProject))) {
+          continue;
+        }
+      }
       try {
         if (
           this.options.shouldHandleManifest !== undefined &&
@@ -1301,7 +1384,7 @@ export class CondaEnvironmentManager
           directories.add(directory);
           continue;
         }
-        candidateProject = this.exactPythonProject(Uri.file(path.dirname(candidate.fsPath)));
+        candidateProject ??= this.exactPythonProject(Uri.file(path.dirname(candidate.fsPath)));
         if (candidateProject === undefined) {
           this.log?.debug(
             `Ignoring manifest outside a registered Python project root: ${candidate.fsPath}`,
@@ -1314,7 +1397,10 @@ export class CondaEnvironmentManager
         const info = discovery.info;
         const manifestUri = Uri.file(info.manifest);
         const projectUri = this.exactPythonProject(Uri.file(path.dirname(info.manifest)));
-        if (projectUri === undefined) {
+        if (
+          projectUri === undefined ||
+          (refreshedProjectKeys !== undefined && !refreshedProjectKeys.has(uriKey(projectUri)))
+        ) {
           continue;
         }
         const converted = discovery.environments.map((environment) => ({
