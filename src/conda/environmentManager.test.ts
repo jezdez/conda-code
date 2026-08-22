@@ -3021,6 +3021,28 @@ test('workspace mutations refresh locations and reconcile failures', async (t) =
   assert.equal(harness.refreshCalls, 2);
 });
 
+test('workspace mutations reject a replacement owner after the safety refresh', async (t) => {
+  const { vscode, packageManager } = modules();
+  const replacements = [
+    { projectUri: vscode.Uri.file('/work/replacement') },
+    { manifestUri: vscode.Uri.file('/work/demo/replacement.toml') },
+    { environmentName: 'replacement' },
+  ];
+
+  for (const replacement of replacements) {
+    const harness = workspacePackageHarness(vscode, packageManager, {
+      refreshRoute: (route, call) => (call === 1 ? { ...route, ...replacement } : route),
+    });
+    t.after(() => harness.packages.dispose());
+
+    await assert.rejects(
+      harness.packages.manage(harness.environment, { install: ['pytest'] }),
+      /Workspace ownership changed/,
+    );
+    assert.deepEqual(harness.changes, []);
+  }
+});
+
 test('workspace mutations discard package caches after final refresh fails', async (t) => {
   const { vscode, packageManager } = modules();
   const harness = workspacePackageHarness(vscode, packageManager, {

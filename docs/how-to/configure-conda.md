@@ -17,6 +17,11 @@ On Windows, use the full path to `conda.exe`:
 }
 ```
 
+The exact `cx` and `cxz` command names from
+[conda-express](https://github.com/jezdez/conda-express) are also accepted when
+explicitly configured. Conda Code does not search for or install these delegates.
+Invoking one follows conda-express's normal bootstrap behavior.
+
 When the setting is empty, Conda Code checks these sources in order:
 
 1. `CONDA_EXE`

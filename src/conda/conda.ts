@@ -36,6 +36,8 @@ export interface CondaEnvironmentFileCreateOptions extends CondaClientOperationO
   readonly noDefaultPackages?: boolean;
 }
 
+const CYCLONEDX_JSON_FORMAT = 'cyclonedx-json-v1.7';
+
 function structuredError(text: string): string | undefined {
   try {
     const value = JSON.parse(text) as unknown;
@@ -90,7 +92,7 @@ export class CondaClient {
     this.runner = options.runner ?? new SpawnCommandRunner();
     this.configuredExecutable = requireValue(options.condaExecutable ?? 'conda', 'condaExecutable');
     if (!isRunnableCondaExecutable(this.configuredExecutable)) {
-      throw new TypeError('condaExecutable must invoke conda directly');
+      throw new TypeError('condaExecutable must invoke conda, cx, or cxz');
     }
     this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     if (!Number.isSafeInteger(this.maxOutputBytes) || this.maxOutputBytes <= 0) {
@@ -185,6 +187,26 @@ export class CondaClient {
   ): Promise<void> {
     await this.runChecked(
       ['remove', '--yes', '--json', '--all', '--prefix', requireValue(prefix, 'prefix')],
+      options,
+    );
+  }
+
+  public async exportEnvironmentSbom(
+    prefix: string,
+    file: string,
+    options: CondaClientOperationOptions = {},
+  ): Promise<void> {
+    await this.runChecked(
+      [
+        'export',
+        '--prefix',
+        requireValue(prefix, 'prefix'),
+        '--from-history',
+        '--format',
+        CYCLONEDX_JSON_FORMAT,
+        '--file',
+        requireValue(file, 'file'),
+      ],
       options,
     );
   }

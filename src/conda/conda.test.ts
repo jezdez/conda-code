@@ -124,6 +124,36 @@ test('derived clients run through the owning conda executable', async () => {
   ]);
 });
 
+test('SBOM export delegates the exact prefix and destination to conda-sboms', async () => {
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaClient({
+    runner,
+    condaExecutable: 'conda',
+  });
+
+  await client.exportEnvironmentSbom('/envs/a path', '/work/a path.cdx.json');
+
+  assert.deepEqual(runner.calls, [
+    {
+      executable: 'conda',
+      args: [
+        'export',
+        '--prefix',
+        '/envs/a path',
+        '--from-history',
+        '--format',
+        'cyclonedx-json-v1.7',
+        '--file',
+        '/work/a path.cdx.json',
+      ],
+      options: {
+        signal: undefined,
+        maxOutputBytes: 4 * 1024 * 1024,
+      },
+    },
+  ]);
+});
+
 test('regular conda reads exclude pip loaders and preserve conda-pypi records', async () => {
   const runner = new RecordingRunner(() =>
     success([
@@ -209,7 +239,7 @@ test('regular conda installs do not upgrade satisfied specs unless requested', a
   ]);
 });
 
-test('Conda clients reject non-conda executables before running a command', () => {
+test('Conda clients reject unsupported executables before running a command', () => {
   const runner = new RecordingRunner(() => success());
   for (const executable of [
     '/opt/tools/bin/solver',

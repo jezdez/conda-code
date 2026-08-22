@@ -60,6 +60,10 @@
         "title": "Conda Code: Refresh Environments"
       },
       {
+        "command": "conda-code.exportEnvironmentSbom",
+        "title": "Conda Code: Export Environment SBOM"
+      },
+      {
         "command": "conda-code.runWorkspaceTask",
         "title": "Conda Code: Run Workspace Task",
         "icon": "$(play)"
@@ -110,7 +114,7 @@
         "conda-code.condaExecutable": {
           "type": "string",
           "default": "",
-          "description": "Path to the primary conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
+          "description": "Path or command name for the primary conda executable, or an explicitly configured cx or cxz delegate. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
           "scope": "machine-overridable"
         }
       }

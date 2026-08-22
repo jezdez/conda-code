@@ -25,6 +25,7 @@ import {
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
 import { CondaWorkspaceProjectFinder } from './conda/projects';
+import { exportSelectedEnvironmentSbom } from './conda/sbom';
 import { CondaSelectionState } from './conda/selectionState';
 import {
   CONDA_WORKSPACE_TASK_TYPE,
@@ -41,6 +42,7 @@ const CONDA_INFO_CACHE_KEY = 'conda-code.condaInfo';
 const PIXI_CODE_EXTENSION_ID = 'renan-r-santos.pixi-code';
 
 interface CondaCodeRuntime extends Disposable {
+  readonly conda: CondaClient;
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
   readonly tasks: CondaWorkspaceTaskProvider;
@@ -268,6 +270,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
     log.info(`Registered ${managerId} using ${condaExecutable}`);
     return {
+      conda,
       environments,
       packages,
       tasks: taskProvider,
@@ -379,6 +382,20 @@ export async function activate(context: ExtensionContext): Promise<void> {
     watcher.onDidDelete(scheduleRefresh),
     api.onDidChangePythonProjects(() => scheduleRefresh()),
     commands.registerCommand('conda-code.refresh', refreshImmediately),
+    commands.registerCommand('conda-code.exportEnvironmentSbom', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return exportSelectedEnvironmentSbom({
+        api,
+        conda: current.conda,
+        environments: current.environments,
+        log,
+        managerId,
+        scope: window.activeTextEditor?.document.uri,
+      });
+    }),
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
       runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
     ),

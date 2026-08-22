@@ -13,6 +13,11 @@
 
 Absolute path or command name for the primary `conda` executable.
 
+The exact `cx` and `cxz`
+[conda-express](https://github.com/jezdez/conda-express) command names are also
+accepted when explicitly configured. Conda Code does not discover or install
+them. Invoking one follows conda-express's normal bootstrap behavior.
+
 - Type: string
 - Default: empty
 - Scope: machine-overridable
@@ -59,6 +64,13 @@ when `conda.toml`, `pixi.toml`, `pyproject.toml`, or `conda.lock` changes.
 
 Project creation inputs such as `environment.yml`, `explicit.txt`, and
 `conda-lock.yml` are not watched.
+
+### `Conda Code: Export Environment SBOM`
+
+Command ID: `conda-code.exportEnvironmentSbom`
+
+Exports the selected Conda Code environment through conda-sboms after choosing
+a CycloneDX JSON destination.
 
 ### `Conda Code: Create Environment from File`
 

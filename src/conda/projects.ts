@@ -130,13 +130,17 @@ export class CondaWorkspaceProjectFinder implements PythonProjectCreator {
     for (const manifest of manifests) {
       const directory = path.dirname(manifest.fsPath);
       const key = normalizeEnvironmentPath(directory);
+      if (directories.has(key) || registered.has(key)) {
+        continue;
+      }
       if (
-        directories.has(key) ||
-        registered.has(key) ||
-        (this.options.shouldHandleManifest !== undefined &&
-          !(await this.options.shouldHandleManifest(manifest))) ||
-        !(await this.isCandidateManifest(manifest))
+        this.options.shouldHandleManifest !== undefined &&
+        !(await this.options.shouldHandleManifest(manifest))
       ) {
+        directories.add(key);
+        continue;
+      }
+      if (!(await this.isCandidateManifest(manifest))) {
         continue;
       }
       directories.add(key);

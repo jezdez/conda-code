@@ -22,6 +22,7 @@ import {
   CondaWorkspaceRoute,
   CondaWorkspaceRouteManager,
   dependencyFeature,
+  normalizeEnvironmentPath,
 } from './workspaceRouting';
 import {
   CondaWorkspacesClient,
@@ -120,7 +121,14 @@ export class CondaPackageManager implements PackageManager, Disposable {
         } else {
           await this.routes.refresh(route.projectUri);
           const refreshedRoute = this.routes.getRoute(current);
-          if (refreshedRoute === undefined) {
+          if (
+            refreshedRoute === undefined ||
+            normalizeEnvironmentPath(refreshedRoute.projectUri.fsPath) !==
+              normalizeEnvironmentPath(route.projectUri.fsPath) ||
+            normalizeEnvironmentPath(refreshedRoute.manifestUri.fsPath) !==
+              normalizeEnvironmentPath(route.manifestUri.fsPath) ||
+            refreshedRoute.environmentName !== route.environmentName
+          ) {
             throw new Error(`Workspace ownership changed for ${current.environmentPath.fsPath}`);
           }
           route = refreshedRoute;

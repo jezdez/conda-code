@@ -62,6 +62,13 @@ newer in the configured conda base environment. Follow the
 [conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
 using the channels configured for your conda distribution.
 
+## SBOM export
+
+**Conda Code: Export Environment SBOM** requires
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
+the conda installation that owns the selected environment. Workspace
+environments use the configured primary conda installation.
+
 (source-build)=
 
 ## Source build
