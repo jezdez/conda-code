@@ -173,6 +173,36 @@ test('offers only owned, unregistered workspace roots', async () => {
   );
 });
 
+test('does not offer lower-priority manifests for directories owned elsewhere', async () => {
+  const { vscode, projects } = modules();
+  const pixi = vscode.Uri.file('/work/pixi-owned/pixi.toml');
+  const pyproject = vscode.Uri.file('/work/pixi-owned/pyproject.toml');
+  vscode.__state.files = [pyproject, pixi];
+  vscode.__state.fileContents = new Map([[pyproject.fsPath, '[tool.conda]']]);
+  vscode.__state.informationMessages.length = 0;
+  vscode.__state.quickPicks.length = 0;
+  const additions: PythonProject[][] = [];
+  const checked: string[] = [];
+  const finder = new projects.CondaWorkspaceProjectFinder(
+    pythonApi([], additions),
+    {} as CondaWorkspacesClient,
+    {
+      shouldHandleManifest: (candidate) => {
+        checked.push(path.basename(candidate.fsPath));
+        return candidate.fsPath !== pixi.fsPath;
+      },
+    },
+  );
+
+  const result = await finder.create();
+
+  assert.equal(result, undefined);
+  assert.deepEqual(checked, ['pixi.toml']);
+  assert.deepEqual(additions, []);
+  assert.deepEqual(vscode.__state.quickPicks, []);
+  assert.deepEqual(vscode.__state.informationMessages, ['No unregistered workspaces found.']);
+});
+
 test('validates and adds only selected projects', async () => {
   const { vscode, projects } = modules();
   const alpha = vscode.Uri.file('/work/alpha/conda.toml');

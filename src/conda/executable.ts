@@ -93,10 +93,12 @@ export function isRunnableCondaExecutable(
     return (
       basename === 'conda.exe' ||
       basename === '_conda.exe' ||
-      ((basename === 'conda' || basename === '_conda') &&
+      basename === 'cx.exe' ||
+      basename === 'cxz.exe' ||
+      ((basename === 'conda' || basename === '_conda' || basename === 'cx' || basename === 'cxz') &&
         !value.includes('/') &&
         !value.includes('\\'))
     );
   }
-  return basename === 'conda' || basename === '_conda';
+  return basename === 'conda' || basename === '_conda' || basename === 'cx' || basename === 'cxz';
 }

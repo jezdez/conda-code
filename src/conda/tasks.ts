@@ -89,7 +89,7 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
   ) {
     this.condaExecutable = requireValue(condaExecutable, 'condaExecutable');
     if (!isRunnableCondaExecutable(this.condaExecutable)) {
-      throw new TypeError('condaExecutable must invoke conda directly');
+      throw new TypeError('condaExecutable must invoke conda, cx, or cxz');
     }
   }
 

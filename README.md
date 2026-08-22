@@ -78,7 +78,9 @@ check regular environment and workspace discovery.
   Conda Code detects richer workspace snapshots and declaration locations when
   the installed conda-workspaces provides them.
 - **Owner-aware operations:** Route activation, package changes, and safe
-  deletion through the conda installation that owns each prefix.
+  deletion through the conda installation that owns each prefix. Run **Conda
+  Code: Export Environment SBOM** to export the selected environment through
+  that same installation when conda-sboms is installed.
 - **Ecosystem compatibility:** Include
   [conda-pypi](https://github.com/conda/conda-pypi) package records, ignore
   [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes
@@ -105,6 +107,8 @@ Optional integrations:
 - conda-workspaces 0.7 or newer for workspace environments and tasks
 - conda-lockfiles 0.2 or newer for conda lockfile creation inputs
 - conda 26.5 or newer for workspace PyPI dependencies
+- [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.1.1 or newer
+  for selected-environment CycloneDX export
 
 Newer conda-workspaces capabilities are detected at runtime. The 0.7 integration
 remains available when complete snapshots or dependency declaration locations

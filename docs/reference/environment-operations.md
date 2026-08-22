@@ -65,6 +65,21 @@ visible after discovery finds its prefix.
 Environments without Python remain visible with a warning. Conda Code reads
 Python version data from `conda-meta` rather than starting the interpreter.
 
+## SBOM export
+
+Run **Conda Code: Export Environment SBOM** from the Command Palette to export
+the selected Conda Code environment. Conda Code opens a save dialog, then runs
+the owning conda executable against the exact installed prefix:
+
+```console
+conda export --prefix PREFIX --from-history --format cyclonedx-json-v1.7 --file FILE
+```
+
+This command requires
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.1.1 or newer in
+the owning conda installation. Conda Code delegates CycloneDX generation and
+serialization to the plugin.
+
 ## Workspace environments
 
 | State                                | Discover          | Install through Create | Select                        | Delete         |
