@@ -76,6 +76,18 @@ metadata to preserve the manifest:
 The 0.7-compatible path can still add to an environment backed by exactly one
 feature. See [](use-workspaces.md).
 
+## SBOM export is refused or the format is missing
+
+Make sure the active editor scope selects an environment from the
+`jezdez.conda-code:conda` manager. A regular environment also needs a usable
+owner executable. Refresh Conda Code after correcting its conda installation.
+
+Install conda-sboms 0.3.0 or newer beside the executable that Conda Code routes
+for the selected environment, then confirm that the same executable lists
+`cyclonedx-json-v1.7` in its `export --help` output. Regular environments use
+their owning conda installation. Workspace environments use the configured
+primary conda installation.
+
 ## Quick Create reports multiple project inputs
 
 The project root contains more than one recognized environment input. Run

@@ -52,6 +52,10 @@ metadata cannot distinguish a default environment from an isolated environment,
 and selecting one feature from a composed environment would change other
 environments, so both require a complete snapshot.
 
+Immediately before a workspace package change, Conda Code refreshes its route
+and verifies that the project URI, manifest URI, and environment name are
+unchanged. It refuses the change when any of those ownership fields differ.
+
 When conda-workspaces reports a dependency's declaration location, Conda Code
 can remove a direct conda dependency and update it at that exact environment,
 feature, platform, or top-level default declaration. Installing a spec that is

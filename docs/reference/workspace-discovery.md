@@ -12,6 +12,11 @@ The order above is the priority when more than one candidate exists in a
 directory. At most one workspace is published for that directory, and only
 that selected manifest contributes tasks. See [](workspace-tasks.md).
 
+When another provider owns a higher-priority manifest in an unregistered
+directory, **Find workspaces** does not offer a lower-priority manifest from the
+same directory. A manifest that fails Conda Code's own validation does not
+prevent consideration of the next candidate.
+
 The search excludes `.git`, `.conda`, `.pixi`, and `node_modules`.
 
 ## Python project registration

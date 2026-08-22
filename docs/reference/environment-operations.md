@@ -68,8 +68,9 @@ Python version data from `conda-meta` rather than starting the interpreter.
 ## SBOM export
 
 Run **Conda Code: Export Environment SBOM** from the Command Palette to export
-the selected Conda Code environment. Conda Code opens a save dialog, then runs
-the owning conda executable against the exact installed prefix:
+the selected Conda Code environment. The save dialog proposes
+`<environment>.cdx.json`, then Conda Code runs the routed conda executable
+against the exact installed prefix:
 
 ```console
 conda export --prefix PREFIX --from-history --format cyclonedx-json-v1.7 --file FILE
@@ -77,8 +78,10 @@ conda export --prefix PREFIX --from-history --format cyclonedx-json-v1.7 --file 
 
 This command requires
 [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
-the owning conda installation. Conda Code delegates CycloneDX generation and
-serialization to the plugin.
+the routed conda installation. Regular environments use their owning conda
+installation and export is refused when no usable owner executable is known.
+Workspace environments use the configured primary conda installation. Conda
+Code delegates CycloneDX generation and serialization to the plugin.
 
 ## Workspace environments
 

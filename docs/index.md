@@ -97,10 +97,11 @@ conda installation, and add dependencies to supported workspace environments.
 ::::
 
 :::{tip}
-Conda Code includes conda-pypi records, accepts conda-lockfiles inputs, skips
-conda-global tool environments and conda-exec caches, and leaves Pixi workspaces
-to Pixi Code when it is installed. See [](explanation/ecosystem.md) for how the
-tools fit together.
+Conda Code includes conda-pypi records, accepts conda-lockfiles inputs, exports
+through conda-sboms, accepts explicitly configured conda-express delegates,
+skips conda-global tool environments and conda-exec caches, and leaves Pixi
+workspaces to Pixi Code when it is installed. See [](explanation/ecosystem.md)
+for how the tools fit together.
 :::
 
 ## Install

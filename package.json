@@ -2,7 +2,7 @@
   "name": "conda-code",
   "displayName": "Conda Code",
   "description": "Conda environments, workspaces, packages, and tasks for Visual Studio Code.",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "publisher": "jezdez",
   "icon": "assets/conda-logo.png",
@@ -114,7 +114,7 @@
         "conda-code.condaExecutable": {
           "type": "string",
           "default": "",
-          "description": "Path or command name for the primary conda executable, or an explicitly configured cx or cxz delegate. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
+          "description": "Path or command name for the primary conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, then conda on PATH. cx and cxz delegates are accepted from the first two sources but are not searched on PATH.",
           "scope": "machine-overridable"
         }
       }

@@ -13,10 +13,12 @@
 
 Absolute path or command name for the primary `conda` executable.
 
-The exact `cx` and `cxz`
-[conda-express](https://github.com/jezdez/conda-express) command names are also
-accepted when explicitly configured. Conda Code does not discover or install
-them. Invoking one follows conda-express's normal bootstrap behavior.
+[conda-express](https://github.com/jezdez/conda-express) delegates supplied by
+this setting, `CONDA_EXE`, or `python.condaPath` are also accepted. Bare `cx`
+and `cxz` work on every platform. An executable path's basename must be exactly
+`cx` or `cxz` on macOS and Linux, or `cx.exe` or `cxz.exe` on Windows. Conda
+Code does not search `PATH` for or install these delegates. Invoking one follows
+conda-express's normal bootstrap behavior.
 
 - Type: string
 - Default: empty
@@ -70,7 +72,8 @@ Project creation inputs such as `environment.yml`, `explicit.txt`, and
 Command ID: `conda-code.exportEnvironmentSbom`
 
 Exports the selected Conda Code environment through conda-sboms after choosing
-a CycloneDX JSON destination.
+a CycloneDX JSON destination. The save dialog proposes
+`<environment>.cdx.json`.
 
 ### `Conda Code: Create Environment from File`
 

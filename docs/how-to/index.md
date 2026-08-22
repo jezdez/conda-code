@@ -30,7 +30,7 @@ Use `environment.yml`, an explicit package list, or a conda-lock file.
 :link: manage-environments
 :link-type: doc
 
-Create, remove, select, and modify regular conda environments.
+Create, remove, select, modify, and export SBOMs for conda environments.
 :::
 
 :::{grid-item-card} {octicon}`project` Use conda-workspaces

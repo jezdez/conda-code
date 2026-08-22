@@ -48,6 +48,22 @@ when it is installed, or with conda-workspaces otherwise.
 Conda Code does not parse or synchronize those files. It delegates the format
 to `conda` and manages the result as a regular named environment.
 
+## conda-sboms
+
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) adds CycloneDX
+JSON to `conda export`. Conda Code supplies the selected environment prefix and
+destination, then delegates generation and serialization to conda-sboms 0.3.0
+or newer. Regular environments use their owning conda installation and
+workspace environments use the configured primary installation.
+
+## conda-express
+
+[conda-express](https://github.com/jezdez/conda-express) supplies `cx` and `cxz`
+delegates that bootstrap and run conda. Conda Code accepts them from the
+`conda-code.condaExecutable` setting, `CONDA_EXE`, or `python.condaPath`. It
+does not search `PATH` for or install them, and their normal bootstrap behavior
+remains in effect.
+
 ## conda-global
 
 [conda-global](https://github.com/conda-incubator/conda-global) creates isolated

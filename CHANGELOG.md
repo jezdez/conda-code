@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Export selected Conda Code environments as CycloneDX 1.7 JSON through
+  conda-sboms 0.3.0 or newer, using the owning conda installation for regular
+  environments and the configured primary conda installation for workspaces
+- Accept `cx` and `cxz` conda-express delegates from the Conda Code setting,
+  `CONDA_EXE`, or `python.condaPath` without searching for them on `PATH`
+- Refuse workspace package changes when the project, manifest, or environment
+  ownership changes during the safety refresh
+- Keep **Find workspaces** from offering a lower-priority manifest when another
+  provider owns the higher-priority manifest in the same directory
+
 ## 0.6.1
 
 - Rename **Find conda workspace projects** to **Find workspaces** and use
