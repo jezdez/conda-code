@@ -65,7 +65,7 @@ using the channels configured for your conda distribution.
 ## SBOM export
 
 **Conda Code: Export Environment SBOM** requires
-[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.1.1 or newer in
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
 the conda installation that owns the selected environment. Workspace
 environments use the configured primary conda installation.
 

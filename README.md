@@ -107,7 +107,7 @@ Optional integrations:
 - conda-workspaces 0.7 or newer for workspace environments and tasks
 - conda-lockfiles 0.2 or newer for conda lockfile creation inputs
 - conda 26.5 or newer for workspace PyPI dependencies
-- [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.1.1 or newer
+- [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer
   for selected-environment CycloneDX export
 
 Newer conda-workspaces capabilities are detected at runtime. The 0.7 integration

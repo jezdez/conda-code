@@ -76,7 +76,7 @@ conda export --prefix PREFIX --from-history --format cyclonedx-json-v1.7 --file 
 ```
 
 This command requires
-[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.1.1 or newer in
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
 the owning conda installation. Conda Code delegates CycloneDX generation and
 serialization to the plugin.
 
