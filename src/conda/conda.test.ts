@@ -128,14 +128,14 @@ test('SBOM export delegates the exact prefix and destination to conda-sboms', as
   const runner = new RecordingRunner(() => success());
   const client = new CondaClient({
     runner,
-    condaExecutable: '/owner/bin/conda',
+    condaExecutable: 'conda',
   });
 
   await client.exportEnvironmentSbom('/envs/a path', '/work/a path.cdx.json');
 
   assert.deepEqual(runner.calls, [
     {
-      executable: '/owner/bin/conda',
+      executable: 'conda',
       args: [
         'export',
         '--prefix',
