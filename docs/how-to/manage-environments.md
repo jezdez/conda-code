@@ -65,9 +65,18 @@ See the [](../reference/package-operations.md) for the workspace differences.
 
 ## Export an environment SBOM
 
-1. Install
-   [conda-sboms](https://conda-incubator.github.io/conda-sboms/how-to/install/)
-   0.3.0 or newer in the environment that owns the routed conda executable.
+1. Install conda-sboms 0.3.0 or newer from conda-forge by running this through
+   the routed conda executable:
+
+   ```console
+   conda install --name base --channel conda-forge "conda-sboms>=0.3.0"
+   ```
+
+   Replace `conda` with `cx`, `cxz`, or the configured executable path when
+   needed. The
+   [installation guide](https://conda-incubator.github.io/conda-sboms/how-to/install/)
+   covers alternative methods.
+
 2. Run the routed executable with `export --help` and confirm that
    `cyclonedx-json-v1.7` is listed.
 3. Select the Conda Code environment for the active editor scope.
