@@ -1473,8 +1473,12 @@ test('workspace validation diagnostics follow scoped refresh and manifest owners
       },
     ],
   ]);
+  const genericFailures = new Set<string>();
   const workspaces = {
     discoverWorkspace: async (manifest: string) => {
+      if (genericFailures.has(manifest)) {
+        throw new Error('temporary workspace discovery failure');
+      }
       const errorDetails = details.get(manifest);
       if (errorDetails !== undefined) {
         throw new CondaCommandError(`conda failed with ${errorDetails.reason}`, 1, errorDetails);
@@ -1526,6 +1530,26 @@ test('workspace validation diagnostics follow scoped refresh and manifest owners
   assert.equal(betaRange?.end.line, 1);
   assert.equal(betaRange?.end.character, 16);
   assert.equal(diagnostics.values.has(ordinaryManifestUri.toString()), false);
+
+  genericFailures.add(alphaManifest);
+  await manager.refresh(alpha);
+  assert.equal(
+    diagnostics.values.get(alphaManifestUri.toString())?.[0]?.message,
+    details.get(alphaManifest)?.reason,
+  );
+  assert.equal(diagnostics.values.has(betaManifestUri.toString()), true);
+
+  genericFailures.delete(alphaManifest);
+  details.set(alphaManifest, {
+    exception_name: 'WorkspaceParseError',
+    path: alphaManifest,
+    reason: 'Updated backend validation message',
+  });
+  await manager.refresh(alpha);
+  assert.equal(
+    diagnostics.values.get(alphaManifestUri.toString())?.[0]?.message,
+    'Updated backend validation message',
+  );
 
   details.delete(alphaManifest);
   await manager.refresh(alpha);

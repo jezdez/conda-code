@@ -864,7 +864,11 @@ export class CondaEnvironmentManager
         this.environmentItemsByPrefix.clear();
         return;
       }
-      this.updateWorkspaceDiagnostics(refreshedProjectKeys, workspaceDiscovery.diagnostics);
+      this.updateWorkspaceDiagnostics(
+        refreshedProjectKeys,
+        workspaceDiscovery.failures,
+        workspaceDiscovery.diagnostics,
+      );
       const discoveryEnvironment = this.options.discovery?.environment ?? process.env;
       const discoveryUserHome = this.options.discovery?.userHome ?? homedir();
       const execRoots = condaExecEnvironmentRoots(discoveryEnvironment, discoveryUserHome);
@@ -1568,10 +1572,15 @@ export class CondaEnvironmentManager
 
   private updateWorkspaceDiagnostics(
     refreshedProjectKeys: ReadonlySet<string> | undefined,
+    failures: readonly FailedWorkspaceDiscovery[],
     discovered: readonly WorkspaceDiagnosticDiscovery[],
   ): void {
+    const failedManifestKeys = new Set(failures.map((failure) => uriKey(failure.manifestUri)));
     for (const [manifestKey, existing] of this.workspaceDiagnosticProjects) {
-      if (refreshedProjectKeys === undefined || refreshedProjectKeys.has(existing.projectKey)) {
+      if (
+        (refreshedProjectKeys === undefined || refreshedProjectKeys.has(existing.projectKey)) &&
+        !failedManifestKeys.has(manifestKey)
+      ) {
         this.workspaceDiagnostics.delete(existing.manifestUri);
         this.workspaceDiagnosticProjects.delete(manifestKey);
       }
