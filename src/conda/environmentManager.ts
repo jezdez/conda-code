@@ -105,6 +105,35 @@ interface WorkspaceDiscovery {
   readonly failures: readonly FailedWorkspaceDiscovery[];
 }
 
+function workspaceLockfileLabel(info: WorkspaceInfo): string | undefined {
+  switch (info.lockfileStatus) {
+    case 'up-to-date':
+      return 'current';
+    case 'out-of-date':
+      return 'stale';
+    case 'missing':
+      return 'missing';
+    case undefined:
+      return undefined;
+  }
+}
+
+function workspaceEnvironmentDescription(info: WorkspaceInfo): string {
+  const status = workspaceLockfileLabel(info);
+  return status === undefined
+    ? 'workspace environment'
+    : `workspace environment · workspace lockfile ${status}`;
+}
+
+function workspaceEnvironmentTooltip(manifest: string, info: WorkspaceInfo): string {
+  const status = workspaceLockfileLabel(info);
+  if (status === undefined) {
+    return manifest;
+  }
+  const reason = info.lockfileReason?.trim();
+  return `${manifest}\nWorkspace lockfile ${status}${reason ? `: ${reason}` : ''}`;
+}
+
 interface CachedPythonEnvironment {
   readonly fingerprint: string;
   readonly item: PythonEnvironment;
@@ -1502,8 +1531,8 @@ export class CondaEnvironmentManager
       displayPath: prefix,
       version,
       environmentPath: Uri.file(prefix),
-      description: 'workspace environment',
-      tooltip: manifestUri.fsPath,
+      description: workspaceEnvironmentDescription(workspaceInfo),
+      tooltip: workspaceEnvironmentTooltip(manifestUri.fsPath, workspaceInfo),
       iconPath: new ThemeIcon(environment.python === null ? 'warning' : 'python'),
       execInfo: {
         run: { executable: pythonPath },
@@ -1540,6 +1569,8 @@ export class CondaEnvironmentManager
       prefix,
       info.execInfo.run.executable,
       info.sysPrefix,
+      info.description,
+      info.tooltip,
       ...fingerprintParts,
     ]);
     const cached = this.environmentItemsByPrefix.get(prefix);
