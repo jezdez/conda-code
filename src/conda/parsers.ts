@@ -27,6 +27,7 @@ export interface CondaPackageRecord {
 export interface WorkspaceInfo {
   readonly manifest: string;
   readonly name: string;
+  readonly features?: readonly string[];
 }
 
 export interface WorkspaceEnvironment {
@@ -249,9 +250,11 @@ export function parseCondaMutationPrefix(text: string): string {
 
 export function parseWorkspaceInfo(text: string): WorkspaceInfo {
   const value = expectRecord(parseJson(text, 'conda workspace info'), 'conda workspace info');
+  const features = optionalStringArray(value, 'features', 'conda workspace info');
   return {
     manifest: expectString(value.manifest, 'conda workspace info.manifest'),
     name: expectString(value.name, 'conda workspace info.name'),
+    ...(features === undefined ? {} : { features }),
   };
 }
 

@@ -69,6 +69,18 @@
         "icon": "$(play)"
       },
       {
+        "command": "conda-code.createWorkspaceEnvironment",
+        "title": "Conda Code: Create Workspace Environment"
+      },
+      {
+        "command": "conda-code.importWorkspaceEnvironment",
+        "title": "Conda Code: Import environment.yml into Workspace"
+      },
+      {
+        "command": "conda-code.removeWorkspaceEnvironment",
+        "title": "Conda Code: Remove Workspace Environment Declaration"
+      },
+      {
         "command": "conda-code.createEnvironmentFromFile",
         "title": "Conda Code: Create Environment from File",
         "icon": "$(add)"

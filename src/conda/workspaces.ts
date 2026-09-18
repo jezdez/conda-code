@@ -49,6 +49,11 @@ export interface DependencyChangeOptions extends CondaOperationOptions {
   readonly noInstall?: boolean;
 }
 
+export interface AddWorkspaceEnvironmentOptions extends CondaOperationOptions {
+  readonly features?: readonly string[];
+  readonly noDefaultFeature?: boolean;
+}
+
 export interface WorkspaceEnvironmentDeclaration extends WorkspaceEnvironment {
   readonly condaDependencies?: readonly string[];
 }
@@ -356,6 +361,55 @@ export class CondaWorkspacesClient extends CondaClient {
       args.push('-e', requireValue(environment, 'environment'));
     }
     return this.runManifestCommand('workspace', manifest, args, options);
+  }
+
+  public addEnvironment(
+    manifest: string,
+    environment: string,
+    options: AddWorkspaceEnvironmentOptions = {},
+  ): Promise<CommandResult> {
+    const args = ['add', '--yes', '--json', '-e', requireValue(environment, 'environment')];
+    for (const feature of options.features ?? []) {
+      args.push('--with-feature', requireValue(feature, 'feature'));
+    }
+    if (options.noDefaultFeature === true) {
+      args.push('--no-default-feature');
+    }
+    return this.runManifestCommand('workspace', manifest, args, options);
+  }
+
+  public importEnvironment(
+    manifest: string,
+    environment: string,
+    file: string,
+    options: CondaOperationOptions = {},
+  ): Promise<CommandResult> {
+    return this.runManifestCommand(
+      'workspace',
+      manifest,
+      [
+        'import',
+        '--yes',
+        '--json',
+        '-e',
+        requireValue(environment, 'environment'),
+        resolve(requireValue(file, 'file')),
+      ],
+      options,
+    );
+  }
+
+  public removeEnvironmentDeclaration(
+    manifest: string,
+    environment: string,
+    options: CondaOperationOptions = {},
+  ): Promise<CommandResult> {
+    return this.runManifestCommand(
+      'workspace',
+      manifest,
+      ['remove', '--yes', '--json', '-e', requireValue(environment, 'environment'), '--all'],
+      options,
+    );
   }
 
   public async quickstart(

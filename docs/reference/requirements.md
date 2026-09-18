@@ -30,6 +30,11 @@ locations allow direct dependency removal and direct conda dependency updates.
 The 0.7-compatible discovery and single-feature package-add path remains
 available when those fields are absent.
 
+Creating, importing, and removing workspace environment declarations through
+the Command Palette requires conda-workspaces 0.9 or newer. Older supported
+versions remain available for discovery, installation, tasks, and compatible
+package operations.
+
 ## Workspace PyPI dependencies
 
 Workspace `[pypi-dependencies]` support requires conda 26.5 or newer, which
