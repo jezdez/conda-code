@@ -213,7 +213,7 @@ function addInstalledEnvironment(
   return environment;
 }
 
-test('lock status reports stale and missing workspaces without installed environments', async () => {
+test('lock status reports stale, missing, and current workspaces without installed environments', async () => {
   const { locks, vscode } = modules();
   reset(vscode);
   const calls: LockCall[] = [];
@@ -240,6 +240,17 @@ test('lock status reports stale and missing workspaces without installed environ
   });
   await locks.showWorkspaceLockStatus(missingOptions);
   assert.deepEqual(vscode.__state.information, ['Workspace lockfile is missing.']);
+
+  reset(vscode);
+  await locks.showWorkspaceLockStatus(
+    options(vscode, calls, {
+      manifest: path.resolve('/work/demo/conda.toml'),
+      name: 'demo',
+      lockfileStatus: 'up-to-date',
+    }),
+  );
+  assert.deepEqual(vscode.__state.information, ['Workspace lockfile is current.']);
+  assert.deepEqual(calls, []);
 });
 
 test('updating the lockfile rechecks ownership and refreshes displayed state', async () => {
@@ -378,4 +389,94 @@ test('new lock actions identify an unsupported conda-workspaces backend', async 
   await locks.updateWorkspaceLockfile(actionOptions);
 
   assert.match(vscode.__state.errors[0] ?? '', /conda-workspaces 0\.10 or newer/);
+});
+
+test('locked install backend failures never fall back to a solve or select an environment', async () => {
+  const { locks, vscode } = modules();
+  for (const [message, expected] of [
+    ['Lockfile became stale', /Lockfile became stale/],
+    ['Lockfile was removed', /Lockfile was removed/],
+    ['Package download failed', /Package download failed/],
+    ['unrecognized arguments: --locked', /conda-workspaces 0\.10 or newer/],
+  ] as const) {
+    reset(vscode);
+    const calls: LockCall[] = [];
+    const actionOptions = options(
+      vscode,
+      calls,
+      {
+        manifest: path.resolve('/work/demo/conda.toml'),
+        name: 'demo',
+        lockfileStatus: 'up-to-date',
+      },
+      [{ name: 'default', features: [], installed: false }],
+    );
+    addInstalledEnvironment(vscode, actionOptions, 'default');
+    const operations: string[] = [];
+    actionOptions.workspaces.installLockedEnvironment = async () => {
+      operations.push('locked');
+      throw new Error(message);
+    };
+    actionOptions.workspaces.installEnvironment = async () => {
+      operations.push('ordinary');
+      return { exitCode: 0, stdout: '{}', stderr: '' };
+    };
+    actionOptions.workspaces.updateLockfile = async () => {
+      operations.push('lock');
+      return { exitCode: 0, stdout: '{}', stderr: '' };
+    };
+    vscode.__state.quickPickResults.push(0);
+
+    await locks.installLockedWorkspaceEnvironment(actionOptions);
+
+    assert.deepEqual(operations, ['locked']);
+    assert.deepEqual(actionOptions.environments.setCalls, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.match(vscode.__state.errors[0] ?? '', expected);
+  }
+});
+
+test('locked install rejects a declaration removed while the picker was open', async () => {
+  const { locks, vscode } = modules();
+  reset(vscode);
+  const calls: LockCall[] = [];
+  const actionOptions = options(vscode, calls, {
+    manifest: path.resolve('/work/demo/conda.toml'),
+    name: 'demo',
+    lockfileStatus: 'up-to-date',
+  });
+  let reads = 0;
+  actionOptions.workspaces.listEnvironments = async () =>
+    ++reads === 1 ? [{ name: 'docs', features: [], installed: false }] : [];
+  vscode.__state.quickPickResults.push(0);
+
+  await locks.installLockedWorkspaceEnvironment(actionOptions);
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(vscode.__state.information, []);
+  assert.match(vscode.__state.errors[0] ?? '', /declaration changed before installation/);
+});
+
+test('an unreported lock status neither claims a current lock nor allows strict installation', async () => {
+  const { locks, vscode } = modules();
+  for (const action of [locks.showWorkspaceLockStatus, locks.installLockedWorkspaceEnvironment]) {
+    reset(vscode);
+    const calls: LockCall[] = [];
+    const actionOptions = options(
+      vscode,
+      calls,
+      {
+        manifest: path.resolve('/work/demo/conda.toml'),
+        name: 'demo',
+      },
+      [{ name: 'default', features: [], installed: false }],
+    );
+    vscode.__state.quickPickResults.push(0);
+
+    await action(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.match(vscode.__state.errors[0] ?? '', /does not report workspace lockfile status/);
+  }
 });
