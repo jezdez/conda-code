@@ -560,3 +560,97 @@ test('workspace image action rejects declarations without a Linux resolution', a
   assert.deepEqual(calls, []);
   assert.match(vscode.__state.errors[0] ?? '', /linux-64 or linux-aarch64/);
 });
+
+test('workspace image build waits for preflight and never starts a task when it fails', async () => {
+  const { vscode, workspaceImage } = modules();
+  reset(vscode);
+  const actionOptions = options(vscode, []);
+  let reachedPreflight!: () => void;
+  const reached = new Promise<void>((resolve) => {
+    reachedPreflight = resolve;
+  });
+  let rejectPreflight!: (error: Error) => void;
+  const preflight = new Promise<never>((_resolve, reject) => {
+    rejectPreflight = reject;
+  });
+  actionOptions.workspaces.previewWorkspaceImage = async () => {
+    reachedPreflight();
+    return preflight;
+  };
+  vscode.__state.quickPickResults.push(0, 0, 0);
+  vscode.__state.inputBoxResults.push('example:latest', 'python', '[]');
+
+  const building = workspaceImage.buildWorkspaceImage(actionOptions);
+  await reached;
+  const tasksBeforeRejection = [...vscode.__state.executedTasks];
+  rejectPreflight(new Error('Lockfile has no exact records for the selected platform'));
+  await building;
+
+  assert.deepEqual(tasksBeforeRejection, []);
+  assert.deepEqual(vscode.__state.executedTasks, []);
+  assert.deepEqual(vscode.__state.information, []);
+  assert.match(vscode.__state.errors[0] ?? '', /no exact records/);
+});
+
+test('image build rejects a platform removed or remapped after selection', async () => {
+  const { vscode, workspaceImage } = modules();
+  const original = snapshot();
+  const environment = original.environments[0]!;
+  for (const resolutions of [
+    [environment.resolutions[0]!],
+    [{ ...environment.resolutions[1]!, subdir: 'linux-64' }],
+  ]) {
+    reset(vscode);
+    const calls: PreviewCall[] = [];
+    const actionOptions = options(vscode, calls, [
+      original,
+      snapshot(undefined, [{ ...environment, resolutions }]),
+    ]);
+    vscode.__state.quickPickResults.push(0, 1, 0);
+    vscode.__state.inputBoxResults.push('example:latest', 'python', '[]');
+
+    await workspaceImage.buildWorkspaceImage(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(vscode.__state.executedTasks, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.match(vscode.__state.errors[0] ?? '', /environment or platform changed/);
+  }
+});
+
+test('cancelling either image destination step starts no build or preflight', async () => {
+  const { vscode, workspaceImage } = modules();
+  for (const destination of [undefined, 1]) {
+    reset(vscode);
+    const calls: PreviewCall[] = [];
+    const actionOptions = options(vscode, calls);
+    vscode.__state.quickPickResults.push(0, 0, destination);
+    vscode.__state.inputBoxResults.push('example:latest', 'python', '[]');
+
+    await workspaceImage.buildWorkspaceImage(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(actionOptions.environments.refreshCalls, []);
+    assert.deepEqual(vscode.__state.executedTasks, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.deepEqual(vscode.__state.errors, []);
+  }
+});
+
+test('image command arguments reject malformed JSON and non-string values before preflight', async () => {
+  const { vscode, workspaceImage } = modules();
+  for (const argumentsJson of ['[', '{}', '[42]', '[null]']) {
+    reset(vscode);
+    const calls: PreviewCall[] = [];
+    const actionOptions = options(vscode, calls);
+    vscode.__state.quickPickResults.push(0, 0);
+    vscode.__state.inputBoxResults.push('example:latest', 'python', argumentsJson);
+
+    await workspaceImage.previewWorkspaceImage(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(actionOptions.environments.refreshCalls, []);
+    assert.deepEqual(vscode.__state.openedDocuments, []);
+    assert.match(vscode.__state.errors[0] ?? '', /JSON array/);
+  }
+});
