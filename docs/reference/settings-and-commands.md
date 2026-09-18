@@ -75,6 +75,14 @@ Exports the selected Conda Code environment through conda-sboms after choosing
 a CycloneDX JSON destination. The save dialog proposes
 `<environment>.cdx.json`.
 
+### `Conda Code: Export Workspace Lockfile SBOM`
+
+Command ID: `conda-code.exportWorkspaceLockfileSbom`
+
+Exports a declared workspace environment directly from its existing lockfile.
+The command asks for the declared environment and platform, offers reproducible
+output without a timestamp, and then asks for a CycloneDX JSON destination.
+
 ### `Conda Code: Create Environment from File`
 
 Command ID: `conda-code.createEnvironmentFromFile`

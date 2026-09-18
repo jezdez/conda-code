@@ -43,6 +43,7 @@ import {
   showWorkspaceLockStatus,
   updateWorkspaceLockfile,
 } from './conda/workspaceLocks';
+import { exportWorkspaceLockfileSbom } from './conda/workspaceSbom';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -406,6 +407,19 @@ export async function activate(context: ExtensionContext): Promise<void> {
         log,
         managerId,
         scope: window.activeTextEditor?.document.uri,
+      });
+    }),
+    commands.registerCommand('conda-code.exportWorkspaceLockfileSbom', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return exportWorkspaceLockfileSbom({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
       });
     }),
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
