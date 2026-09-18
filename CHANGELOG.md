@@ -7,6 +7,8 @@
   through command-palette actions backed by conda-workspaces 0.9 or newer
 - Show workspace-wide lockfile status and its reported reason, update the
   lockfile explicitly, and install a selected environment with `--locked`
+- Export a declared workspace environment directly from `conda.lock` for a
+  selected declared platform, with optional reproducible CycloneDX output
 
 ## 0.7.0
 

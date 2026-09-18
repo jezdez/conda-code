@@ -117,6 +117,22 @@ Run **Conda Code: Update Workspace Lockfile** to solve every declared
 environment and write the workspace lockfile. These lock actions require
 conda-workspaces 0.10 or newer.
 
+## Export an SBOM from the lockfile
+
+Run **Conda Code: Export Workspace Lockfile SBOM** and choose the workspace,
+declared environment, declared platform, timestamp mode, and JSON destination.
+The environment does not need to be installed. Conda Code passes the declared
+platform name to `conda workspace sbom`, including when two names use the same
+conda subdir.
+
+The export reads the existing `conda.lock`. It does not solve, update the
+lockfile, install an environment, or download packages. Reproducible output
+omits the SBOM timestamp. This action requires conda-workspaces 0.9 or newer and
+conda-sboms 0.3.0 or newer in the configured conda installation.
+
+Use **Conda Code: Export Environment SBOM** when you want to export the selected
+installed prefix instead.
+
 ## Create, import, or remove a declaration
 
 Run **Conda Code: Create Workspace Environment** to add a named declaration to

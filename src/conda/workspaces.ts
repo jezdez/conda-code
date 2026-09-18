@@ -15,6 +15,7 @@ import {
   type WorkspaceDependency,
   type WorkspacePackage,
   type WorkspaceQuickstartResult,
+  type WorkspaceSnapshot,
   type WorkspaceSnapshotEnvironment,
   type WorkspaceSnapshotResolution,
   type WorkspaceTaskList,
@@ -30,6 +31,9 @@ export type {
   WorkspaceLockfileStatus,
   WorkspacePackage,
   WorkspaceQuickstartResult,
+  WorkspaceSnapshot,
+  WorkspaceSnapshotEnvironment,
+  WorkspaceSnapshotResolution,
   WorkspaceTask,
   WorkspaceTaskList,
 } from './parsers';
@@ -53,6 +57,10 @@ export interface DependencyChangeOptions extends CondaOperationOptions {
 export interface AddWorkspaceEnvironmentOptions extends CondaOperationOptions {
   readonly features?: readonly string[];
   readonly noDefaultFeature?: boolean;
+}
+
+export interface WorkspaceSbomOptions extends CondaOperationOptions {
+  readonly reproducible?: boolean;
 }
 
 export interface WorkspaceEnvironmentDeclaration extends WorkspaceEnvironment {
@@ -163,13 +171,7 @@ export class CondaWorkspacesClient extends CondaClient {
   ): Promise<CondaWorkspaceDiscovery> {
     if (!this.snapshotUnsupported) {
       try {
-        const result = await this.runManifestCommand(
-          'workspace',
-          manifest,
-          ['info', '--json', '--packages'],
-          options,
-        );
-        const snapshot = parseWorkspaceSnapshot(result.stdout);
+        const snapshot = await this.getWorkspaceSnapshot(manifest, options);
         const details = snapshot.environments.map((environment) => ({
           source: environment,
           environment: hostSnapshotEnvironment(environment, condaPlatform),
@@ -240,6 +242,19 @@ export class CondaWorkspacesClient extends CondaClient {
       options,
     );
     return parseWorkspaceInfo(result.stdout);
+  }
+
+  public async getWorkspaceSnapshot(
+    manifest: string,
+    options: CondaOperationOptions = {},
+  ): Promise<WorkspaceSnapshot> {
+    const result = await this.runManifestCommand(
+      'workspace',
+      manifest,
+      ['info', '--json', '--packages'],
+      options,
+    );
+    return parseWorkspaceSnapshot(result.stdout);
   }
 
   public async listEnvironments(
@@ -440,6 +455,28 @@ export class CondaWorkspacesClient extends CondaClient {
       ['remove', '--yes', '--json', '-e', requireValue(environment, 'environment'), '--all'],
       options,
     );
+  }
+
+  public exportWorkspaceSbom(
+    manifest: string,
+    environment: string,
+    platform: string,
+    file: string,
+    options: WorkspaceSbomOptions = {},
+  ): Promise<CommandResult> {
+    const args = [
+      'sbom',
+      '--environment',
+      requireValue(environment, 'environment'),
+      '--platform',
+      requireValue(platform, 'platform'),
+      '--file',
+      resolve(requireValue(file, 'file')),
+    ];
+    if (options.reproducible === true) {
+      args.push('--reproducible');
+    }
+    return this.runManifestCommand('workspace', manifest, args, options);
   }
 
   public async quickstart(

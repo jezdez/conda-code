@@ -274,6 +274,67 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
   );
 });
 
+test('getWorkspaceSnapshot returns declared environments and rich platform resolutions', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const response = {
+    manifest,
+    name: 'demo',
+    environment_details: [
+      {
+        name: 'analysis',
+        features: ['cuda'],
+        platforms: ['linux-base', 'linux-cuda'],
+        prefix: path.resolve('/work/project/.conda/envs/analysis'),
+        installed: false,
+        resolutions: [
+          {
+            platform: 'linux-base',
+            subdir: 'linux-64',
+            conda_dependencies: {},
+            pypi_dependencies: {},
+          },
+          {
+            platform: 'linux-cuda',
+            subdir: 'linux-64',
+            conda_dependencies: {},
+            pypi_dependencies: {},
+          },
+        ],
+        packages: [],
+      },
+    ],
+  };
+  const runner = new RecordingRunner(() => success(response));
+  const client = new CondaWorkspacesClient({ runner });
+
+  assert.deepEqual(await client.getWorkspaceSnapshot(manifest), {
+    manifest,
+    name: 'demo',
+    environments: [
+      {
+        name: 'analysis',
+        features: ['cuda'],
+        platforms: ['linux-base', 'linux-cuda'],
+        prefix: path.resolve('/work/project/.conda/envs/analysis'),
+        installed: false,
+        resolutions: [
+          { platform: 'linux-base', subdir: 'linux-64', dependencies: [] },
+          { platform: 'linux-cuda', subdir: 'linux-64', dependencies: [] },
+        ],
+        packages: [],
+      },
+    ],
+  });
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'info',
+    '--json',
+    '--packages',
+  ]);
+});
+
 test('discoverWorkspace uses environment platform order for rich host resolutions', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
@@ -653,6 +714,39 @@ test('environment declaration methods keep lifecycle arguments separate', async 
       },
     ],
   );
+});
+
+test('workspace SBOM export keeps manifest, destination, and rich platform arguments separate', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const destination = path.resolve('/work/output/analysis.cdx.json');
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaWorkspacesClient({ runner });
+
+  await client.exportWorkspaceSbom(manifest, 'analysis', 'linux-cuda', destination, {
+    reproducible: true,
+  });
+
+  assert.deepEqual(runner.calls[0], {
+    executable: 'conda',
+    args: [
+      'workspace',
+      '--file',
+      manifest,
+      'sbom',
+      '--environment',
+      'analysis',
+      '--platform',
+      'linux-cuda',
+      '--file',
+      destination,
+      '--reproducible',
+    ],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: path.dirname(manifest),
+    },
+  });
 });
 
 test('quickstart runs in the target directory and parses its JSON result', async () => {
