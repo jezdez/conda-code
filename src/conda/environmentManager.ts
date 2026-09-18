@@ -1,4 +1,4 @@
-import { stat, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -18,9 +18,14 @@ import {
   SetEnvironmentScope,
 } from '@vscode/python-environments';
 import {
+  Diagnostic,
+  DiagnosticSeverity,
   Disposable,
   EventEmitter,
+  languages,
   LogOutputChannel,
+  Position,
+  Range,
   ThemeIcon,
   Uri,
   window,
@@ -36,6 +41,7 @@ import {
   type CondaDiscoveryResult,
 } from './discovery';
 import { fingerprintDiscoveryPaths } from './discoveryCache';
+import { isCondaWorkspaceManifest } from './manifestOwnership';
 import {
   condaExecEnvironmentRoots,
   condaGlobalEnvironmentRoots,
@@ -67,6 +73,9 @@ import {
   InstalledWorkspaceEnvironment,
   WorkspaceEnvironmentDeclaration,
   WorkspaceInfo,
+  WorkspaceManifestValidationError,
+  workspaceManifestIsAbsentError,
+  workspaceManifestValidationError,
 } from './workspaces';
 
 const MANIFEST_NAMES = ['conda.toml', 'pixi.toml', 'pyproject.toml'] as const;
@@ -100,9 +109,16 @@ interface FailedWorkspaceDiscovery {
   readonly projectUri?: Uri;
 }
 
+interface WorkspaceDiagnosticDiscovery {
+  readonly manifestUri: Uri;
+  readonly projectUri: Uri;
+  readonly validation: WorkspaceManifestValidationError;
+}
+
 interface WorkspaceDiscovery {
   readonly workspaces: readonly DiscoveredWorkspace[];
   readonly failures: readonly FailedWorkspaceDiscovery[];
+  readonly diagnostics: readonly WorkspaceDiagnosticDiscovery[];
 }
 
 function workspaceLockfileLabel(info: WorkspaceInfo): string | undefined {
@@ -294,6 +310,11 @@ export class CondaEnvironmentManager
   private readonly workspaceRoutesByManifest = new Map<string, readonly CondaWorkspaceRoute[]>();
   private readonly environmentItemsByPrefix = new Map<string, CachedPythonEnvironment>();
   private readonly activeByScope = new Map<string, PythonEnvironment>();
+  private readonly workspaceDiagnostics = languages.createDiagnosticCollection('conda-workspaces');
+  private readonly workspaceDiagnosticProjects = new Map<
+    string,
+    { readonly manifestUri: Uri; readonly projectKey: string }
+  >();
   private regularEnvironments: readonly PythonEnvironment[] = [];
   private regularMetadataByPrefix = new Map<string, CondaPrefixMetadata>();
   private additionalRegularPrefixes = new Set<string>();
@@ -773,6 +794,8 @@ export class CondaEnvironmentManager
     this.condaInfoEnrichment = undefined;
     this.onDidChangeEnvironmentEmitter.dispose();
     this.onDidChangeEnvironmentsEmitter.dispose();
+    this.workspaceDiagnostics.dispose();
+    this.workspaceDiagnosticProjects.clear();
     this.regularEnvironments = [];
     this.regularMetadataByPrefix.clear();
     this.regularDiscoveryCache = undefined;
@@ -841,6 +864,11 @@ export class CondaEnvironmentManager
         this.environmentItemsByPrefix.clear();
         return;
       }
+      this.updateWorkspaceDiagnostics(
+        refreshedProjectKeys,
+        workspaceDiscovery.failures,
+        workspaceDiscovery.diagnostics,
+      );
       const discoveryEnvironment = this.options.discovery?.environment ?? process.env;
       const discoveryUserHome = this.options.discovery?.userHome ?? homedir();
       const execRoots = condaExecEnvironmentRoots(discoveryEnvironment, discoveryUserHome);
@@ -1389,6 +1417,7 @@ export class CondaEnvironmentManager
     const directories = new Set<string>();
     const discovered: DiscoveredWorkspace[] = [];
     const failures: FailedWorkspaceDiscovery[] = [];
+    const diagnostics: WorkspaceDiagnosticDiscovery[] = [];
     for (const candidate of candidates) {
       if (signal.aborted) {
         break;
@@ -1494,23 +1523,90 @@ export class CondaEnvironmentManager
           break;
         }
         const manifestKey = normalizeEnvironmentPath(candidate.fsPath);
+        const manifestIsAbsent = workspaceManifestIsAbsentError(error);
         if (
-          path.basename(candidate.fsPath) !== 'pyproject.toml' ||
-          this.workspaceRoutesByManifest.has(manifestKey)
+          !manifestIsAbsent &&
+          (path.basename(candidate.fsPath) !== 'pyproject.toml' ||
+            this.workspaceRoutesByManifest.has(manifestKey))
         ) {
           directories.add(directory);
         }
-        failures.push({
-          manifestUri: candidate,
-          ...(candidateProject === undefined ? {} : { projectUri: candidateProject }),
-        });
+        if (!manifestIsAbsent) {
+          failures.push({
+            manifestUri: candidate,
+            ...(candidateProject === undefined ? {} : { projectUri: candidateProject }),
+          });
+        }
+        const validation = workspaceManifestValidationError(error);
+        if (
+          validation !== undefined &&
+          candidateProject !== undefined &&
+          (this.workspaceRoutesByManifest.has(manifestKey) ||
+            (await this.isRecognizedWorkspaceManifest(candidate)))
+        ) {
+          diagnostics.push({
+            manifestUri: candidate,
+            projectUri: candidateProject,
+            validation,
+          });
+        }
         this.log?.debug(
           `Could not inspect workspace manifest ${candidate.fsPath}: ${errorMessage(error)}`,
         );
       }
     }
 
-    return { workspaces: discovered, failures };
+    return { workspaces: discovered, failures, diagnostics };
+  }
+
+  private async isRecognizedWorkspaceManifest(manifest: Uri): Promise<boolean> {
+    if (path.basename(manifest.fsPath) !== 'pyproject.toml') {
+      return isCondaWorkspaceManifest(manifest.fsPath);
+    }
+    try {
+      return isCondaWorkspaceManifest(manifest.fsPath, await readFile(manifest.fsPath, 'utf8'));
+    } catch {
+      return false;
+    }
+  }
+
+  private updateWorkspaceDiagnostics(
+    refreshedProjectKeys: ReadonlySet<string> | undefined,
+    failures: readonly FailedWorkspaceDiscovery[],
+    discovered: readonly WorkspaceDiagnosticDiscovery[],
+  ): void {
+    const failedManifestKeys = new Set(failures.map((failure) => uriKey(failure.manifestUri)));
+    for (const [manifestKey, existing] of this.workspaceDiagnosticProjects) {
+      if (
+        (refreshedProjectKeys === undefined || refreshedProjectKeys.has(existing.projectKey)) &&
+        !failedManifestKeys.has(manifestKey)
+      ) {
+        this.workspaceDiagnostics.delete(existing.manifestUri);
+        this.workspaceDiagnosticProjects.delete(manifestKey);
+      }
+    }
+
+    for (const { manifestUri, projectUri, validation } of discovered) {
+      const start = new Position(
+        Math.max(0, (validation.line ?? 1) - 1),
+        Math.max(0, (validation.column ?? 1) - 1),
+      );
+      const end = new Position(
+        Math.max(start.line, (validation.endLine ?? validation.line ?? 1) - 1),
+        Math.max(0, (validation.endColumn ?? validation.column ?? 1) - 1),
+      );
+      const diagnostic = new Diagnostic(
+        new Range(start, end),
+        validation.message,
+        DiagnosticSeverity.Error,
+      );
+      diagnostic.source = 'conda-workspaces';
+      this.workspaceDiagnostics.set(manifestUri, [diagnostic]);
+      this.workspaceDiagnosticProjects.set(uriKey(manifestUri), {
+        manifestUri,
+        projectKey: uriKey(projectUri),
+      });
+    }
   }
 
   private toWorkspacePythonEnvironment(

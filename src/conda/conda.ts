@@ -38,7 +38,12 @@ export interface CondaEnvironmentFileCreateOptions extends CondaClientOperationO
 
 const CYCLONEDX_JSON_FORMAT = 'cyclonedx-json-v1.7';
 
-function structuredError(text: string): string | undefined {
+interface ParsedStructuredError {
+  readonly detail: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
+function structuredError(text: string): ParsedStructuredError | undefined {
   try {
     const value = JSON.parse(text) as unknown;
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -48,13 +53,28 @@ function structuredError(text: string): string | undefined {
     for (const key of ['message', 'error']) {
       const detail = record[key];
       if (typeof detail === 'string' && detail.trim() !== '') {
-        return detail.trim().slice(0, 500);
+        return {
+          detail: detail.trim().slice(0, 500),
+          details: record,
+        };
       }
     }
   } catch {
     return undefined;
   }
   return undefined;
+}
+
+export class CondaCommandError extends Error {
+  public override readonly name = 'CondaCommandError';
+
+  public constructor(
+    message: string,
+    public readonly exitCode: number,
+    public readonly details?: Readonly<Record<string, unknown>>,
+  ) {
+    super(message);
+  }
 }
 
 function commandErrorLine(text: string): string | undefined {
@@ -259,12 +279,17 @@ export class CondaClient {
     };
     const result = await this.runner.run(this.configuredExecutable, args, runOptions);
     if (result.exitCode !== 0) {
+      const structured = structuredError(result.stdout);
       const detail =
-        structuredError(result.stdout) ??
+        structured?.detail ??
         commandErrorLine(result.stderr) ??
         commandErrorLine(result.stdout) ??
         `exit code ${result.exitCode}`;
-      throw new Error(`${this.configuredExecutable} failed with ${detail}`);
+      throw new CondaCommandError(
+        `${this.configuredExecutable} failed with ${detail}`,
+        result.exitCode,
+        structured?.details,
+      );
     }
     return result;
   }

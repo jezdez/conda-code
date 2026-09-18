@@ -16,7 +16,7 @@ import type {
 } from '@vscode/python-environments';
 import type { Memento, Uri as VscodeUri } from 'vscode';
 
-import type { CondaClient } from './conda';
+import { type CondaClient, CondaCommandError } from './conda';
 import type { CondaInfo } from './parsers';
 import { canonicalCondaPath } from './prefixes';
 import type { CondaWorkspaceRoute, CondaWorkspaceRouteManager } from './workspaceRouting';
@@ -57,6 +57,29 @@ class ThemeIcon {
   }
 }
 
+class Position {
+  constructor(line, character) {
+    this.line = line;
+    this.character = character;
+  }
+}
+
+class Range {
+  constructor(start, end) {
+    this.start = start;
+    this.end = end;
+  }
+}
+
+class Diagnostic {
+  constructor(range, message, severity) {
+    this.range = range;
+    this.message = message;
+    this.severity = severity;
+    this.source = undefined;
+  }
+}
+
 class EventEmitter {
   constructor() {
     this.listeners = new Set();
@@ -92,6 +115,26 @@ const __state = {
   progress: [],
   warnings: [],
   warningResponse: null,
+  diagnosticCollections: [],
+};
+const languages = {
+  createDiagnosticCollection: (name) => {
+    const values = new Map();
+    const collection = {
+      name,
+      values,
+      disposed: false,
+      set: (uri, diagnostics) => values.set(uri.toString(), diagnostics),
+      delete: (uri) => values.delete(uri.toString()),
+      clear: () => values.clear(),
+      dispose: () => {
+        collection.disposed = true;
+        values.clear();
+      },
+    };
+    __state.diagnosticCollections.push(collection);
+    return collection;
+  },
 };
 const workspace = {
   findFiles: async (pattern) =>
@@ -122,12 +165,18 @@ const window = {
 };
 
 const ProgressLocation = { Notification: 15 };
+const DiagnosticSeverity = { Error: 0 };
 
 module.exports = {
   __state,
   Disposable,
   EventEmitter,
+  Diagnostic,
+  DiagnosticSeverity,
+  languages,
+  Position,
   ProgressLocation,
+  Range,
   ThemeIcon,
   Uri,
   window,
@@ -177,6 +226,21 @@ interface VscodeStub {
       readonly item: string;
     }[];
     warningResponse: string | undefined | null;
+    diagnosticCollections: {
+      readonly name: string;
+      readonly values: Map<
+        string,
+        readonly {
+          readonly message: string;
+          readonly source?: string;
+          readonly range: {
+            readonly start: { readonly line: number; readonly character: number };
+            readonly end: { readonly line: number; readonly character: number };
+          };
+        }[]
+      >;
+      readonly disposed: boolean;
+    }[];
   };
 }
 
@@ -1363,6 +1427,279 @@ test('scoped workspace refresh preserves and does not rediscover other projects'
   );
   assert.ok(restoredBeta);
   assert.equal(manager.getRoute(restoredBeta)?.projectUri.fsPath, betaPath);
+});
+
+test('workspace validation diagnostics follow scoped refresh and manifest ownership', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-diagnostics-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const alphaPath = path.join(root, 'alpha');
+  const betaPath = path.join(root, 'beta');
+  const ordinaryPath = path.join(root, 'ordinary');
+  const alphaManifest = path.join(alphaPath, 'conda.toml');
+  const betaManifest = path.join(betaPath, 'conda.toml');
+  const ordinaryManifest = path.join(ordinaryPath, 'pyproject.toml');
+  await Promise.all([mkdir(alphaPath), mkdir(betaPath), mkdir(ordinaryPath)]);
+  await Promise.all([
+    writeFile(alphaManifest, '[workspace]\nchannels = [42]\n'),
+    writeFile(betaManifest, '[workspace]\ndependencies = { python = 42 }\n'),
+    writeFile(ordinaryManifest, '[project]\nname = "ordinary"\n'),
+  ]);
+
+  const details = new Map<string, Readonly<Record<string, unknown>>>([
+    [
+      alphaManifest,
+      {
+        exception_name: 'WorkspaceParseError',
+        path: alphaManifest,
+        reason: 'Channel entries must be strings',
+      },
+    ],
+    [
+      betaManifest,
+      {
+        exception_name: 'WorkspaceParseError',
+        path: betaManifest,
+        reason: 'Dependency values must be strings or tables',
+        line: 2,
+        column: 17,
+      },
+    ],
+    [
+      ordinaryManifest,
+      {
+        exception_name: 'WorkspaceParseError',
+        path: ordinaryManifest,
+        reason: 'No [tool.conda.workspace] or [tool.pixi.workspace] table found',
+      },
+    ],
+  ]);
+  const genericFailures = new Set<string>();
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      if (genericFailures.has(manifest)) {
+        throw new Error('temporary workspace discovery failure');
+      }
+      const errorDetails = details.get(manifest);
+      if (errorDetails !== undefined) {
+        throw new CondaCommandError(`conda failed with ${errorDetails.reason}`, 1, errorDetails);
+      }
+      return emptyWorkspaceDiscovery(manifest);
+    },
+  } as unknown as CondaWorkspacesClient;
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const alpha = vscode.Uri.file(alphaPath);
+  const beta = vscode.Uri.file(betaPath);
+  const ordinary = vscode.Uri.file(ordinaryPath);
+  const alphaManifestUri = vscode.Uri.file(alphaManifest);
+  const betaManifestUri = vscode.Uri.file(betaManifest);
+  const ordinaryManifestUri = vscode.Uri.file(ordinaryManifest);
+  vscode.__state.files = [alphaManifestUri, betaManifestUri, ordinaryManifestUri];
+  vscode.__state.folders = [{ uri: alpha }, { uri: beta }, { uri: ordinary }];
+  let alphaOwned = true;
+  const collectionCount = vscode.__state.diagnosticCollections.length;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([alpha, beta, ordinary]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+    {
+      shouldHandleManifest: (manifest) => manifest.fsPath !== alphaManifest || alphaOwned,
+    },
+  );
+
+  await manager.refresh(undefined);
+  assert.equal(vscode.__state.diagnosticCollections.length, collectionCount + 1);
+  const diagnostics = vscode.__state.diagnosticCollections.at(-1);
+  assert.ok(diagnostics);
+  assert.equal(diagnostics.name, 'conda-workspaces');
+  assert.equal(diagnostics.values.size, 2);
+  assert.equal(
+    diagnostics.values.get(alphaManifestUri.toString())?.[0]?.message,
+    details.get(alphaManifest)?.reason,
+  );
+  const alphaRange = diagnostics.values.get(alphaManifestUri.toString())?.[0]?.range;
+  assert.equal(alphaRange?.start.line, 0);
+  assert.equal(alphaRange?.start.character, 0);
+  assert.equal(alphaRange?.end.line, 0);
+  assert.equal(alphaRange?.end.character, 0);
+  const betaRange = diagnostics.values.get(betaManifestUri.toString())?.[0]?.range;
+  assert.equal(betaRange?.start.line, 1);
+  assert.equal(betaRange?.start.character, 16);
+  assert.equal(betaRange?.end.line, 1);
+  assert.equal(betaRange?.end.character, 16);
+  assert.equal(diagnostics.values.has(ordinaryManifestUri.toString()), false);
+
+  genericFailures.add(alphaManifest);
+  await manager.refresh(alpha);
+  assert.equal(
+    diagnostics.values.get(alphaManifestUri.toString())?.[0]?.message,
+    details.get(alphaManifest)?.reason,
+  );
+  assert.equal(diagnostics.values.has(betaManifestUri.toString()), true);
+
+  genericFailures.delete(alphaManifest);
+  details.set(alphaManifest, {
+    exception_name: 'WorkspaceParseError',
+    path: alphaManifest,
+    reason: 'Updated backend validation message',
+  });
+  await manager.refresh(alpha);
+  assert.equal(
+    diagnostics.values.get(alphaManifestUri.toString())?.[0]?.message,
+    'Updated backend validation message',
+  );
+
+  details.delete(alphaManifest);
+  await manager.refresh(alpha);
+  assert.equal(diagnostics.values.has(alphaManifestUri.toString()), false);
+  assert.equal(diagnostics.values.has(betaManifestUri.toString()), true);
+
+  details.set(alphaManifest, {
+    exception_name: 'WorkspaceParseError',
+    path: alphaManifest,
+    reason: 'Channel entries must be strings',
+  });
+  await manager.refresh(alpha);
+  assert.equal(diagnostics.values.has(alphaManifestUri.toString()), true);
+  alphaOwned = false;
+  await manager.refresh(alpha);
+  assert.equal(diagnostics.values.has(alphaManifestUri.toString()), false);
+  assert.equal(diagnostics.values.has(betaManifestUri.toString()), true);
+
+  alphaOwned = true;
+  await manager.refresh(alpha);
+  assert.equal(diagnostics.values.has(alphaManifestUri.toString()), true);
+  vscode.__state.files = [betaManifestUri, ordinaryManifestUri];
+  await manager.refresh(alpha);
+  assert.equal(diagnostics.values.has(alphaManifestUri.toString()), false);
+  assert.equal(diagnostics.values.has(betaManifestUri.toString()), true);
+
+  manager.dispose();
+  assert.equal(diagnostics.disposed, true);
+});
+
+test('new invalid workspace pyprojects publish backend diagnostics without prior ownership', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-new-workspace-diagnostics-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const fixtures = [
+    {
+      name: 'conda',
+      contents: '[tool.conda.workspace]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'pixi',
+      contents: '[tool.pixi.workspace]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'ordinary',
+      contents: '[project]\nname =\n',
+      messages: [],
+    },
+  ].map((fixture) => {
+    const project = vscode.Uri.file(path.join(root, fixture.name));
+    return {
+      ...fixture,
+      project,
+      manifest: vscode.Uri.file(path.join(project.fsPath, 'pyproject.toml')),
+    };
+  });
+  for (const fixture of fixtures) {
+    await mkdir(fixture.project.fsPath);
+    await writeFile(fixture.manifest.fsPath, fixture.contents);
+  }
+  const projects = fixtures.map(({ project }) => project);
+  vscode.__state.files = fixtures.map(({ manifest }) => manifest);
+  vscode.__state.folders = projects.map((uri) => ({ uri }));
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      throw new CondaCommandError('conda failed to parse workspace', 1, {
+        exception_name: 'WorkspaceParseError',
+        path: manifest,
+        reason: 'Expected a value',
+        line: 2,
+        column: 7,
+      });
+    },
+  } as unknown as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi(projects),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await manager.refresh(undefined);
+
+  const diagnostics = vscode.__state.diagnosticCollections.at(-1);
+  assert.ok(diagnostics);
+  for (const fixture of fixtures) {
+    assert.deepEqual(
+      diagnostics.values.get(fixture.manifest.toString())?.map(({ message }) => message) ?? [],
+      fixture.messages,
+      fixture.name,
+    );
+  }
+});
+
+test('a former workspace pyproject becomes unowned when its workspace table is removed', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-former-workspace-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const manifestPath = path.join(projectPath, 'pyproject.toml');
+  await mkdir(projectPath);
+  await writeFile(manifestPath, '[tool.conda.workspace]\nname = "demo"\n');
+  let hasWorkspace = true;
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      if (hasWorkspace) {
+        return emptyWorkspaceDiscovery(manifest);
+      }
+      throw new CondaCommandError('conda failed with no workspace table', 1, {
+        exception_name: 'WorkspaceParseError',
+        path: manifest,
+        reason: 'No [tool.conda.workspace] or [tool.pixi.workspace] table found',
+      });
+    },
+  } as unknown as CondaWorkspacesClient;
+
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  const manifest = vscode.Uri.file(manifestPath);
+  vscode.__state.files = [manifest];
+  vscode.__state.folders = [{ uri: project }];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await manager.refresh(undefined);
+  assert.deepEqual(
+    (await manager.getWorkspaceManifests()).map((value: VscodeUri) => value.fsPath),
+    [manifestPath],
+  );
+
+  hasWorkspace = false;
+  await writeFile(
+    manifestPath,
+    '[project]\nname = "demo"\ndescription = """\n[tool.conda.workspace]\n"""\n',
+  );
+  await manager.refresh(project);
+
+  assert.deepEqual(await manager.getWorkspaceManifests(), []);
+  const diagnostics = vscode.__state.diagnosticCollections.at(-1);
+  assert.ok(diagnostics);
+  assert.equal(diagnostics.values.has(manifest.toString()), false);
 });
 
 test('different scopes queued together promote the follow-up refresh to global', async (t) => {
