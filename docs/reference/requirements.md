@@ -74,6 +74,11 @@ using the channels configured for your conda distribution.
 the conda installation that owns the selected environment. Workspace
 environments use the configured primary conda installation.
 
+**Conda Code: Export Workspace Lockfile SBOM** requires conda-workspaces 0.9 or
+newer and conda-sboms 0.3.0 or newer in the configured primary conda
+installation. The workspace action reads exact package records from
+`conda.lock`, so it does not require an installed environment.
+
 (source-build)=
 
 ## Source build

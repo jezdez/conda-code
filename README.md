@@ -80,8 +80,9 @@ check regular environment and workspace discovery.
   conda-workspaces provides them.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix. Run **Conda
-  Code: Export Environment SBOM** to use that owner for a regular environment
-  or the configured primary conda installation for a workspace.
+  Code: Export Environment SBOM** for an installed prefix, or **Conda Code:
+  Export Workspace Lockfile SBOM** for a declared environment that may not be
+  installed.
 - **Ecosystem compatibility:** Include
   [conda-pypi](https://github.com/conda/conda-pypi) package records, ignore
   [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes

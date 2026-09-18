@@ -64,6 +64,10 @@
         "title": "Conda Code: Export Environment SBOM"
       },
       {
+        "command": "conda-code.exportWorkspaceLockfileSbom",
+        "title": "Conda Code: Export Workspace Lockfile SBOM"
+      },
+      {
         "command": "conda-code.runWorkspaceTask",
         "title": "Conda Code: Run Workspace Task",
         "icon": "$(play)"
