@@ -10,6 +10,7 @@ import {
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
   parseWorkspaceInfo,
+  parseWorkspaceImagePreview,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
   parseWorkspaceSnapshot,
@@ -17,6 +18,7 @@ import {
   type WorkspaceEnvironment,
   type WorkspaceEnvironmentInfo,
   type WorkspaceInfo,
+  type WorkspaceImagePreview,
   type WorkspaceDependency,
   type WorkspacePackage,
   type WorkspaceQuickstartResult,
@@ -33,6 +35,7 @@ export type {
   WorkspaceEnvironment,
   WorkspaceEnvironmentInfo,
   WorkspaceInfo,
+  WorkspaceImagePreview,
   WorkspaceLockfileStatus,
   WorkspacePackage,
   WorkspaceQuickstartResult,
@@ -67,6 +70,21 @@ export interface AddWorkspaceEnvironmentOptions extends CondaOperationOptions {
 export interface WorkspaceSbomOptions extends CondaOperationOptions {
   readonly reproducible?: boolean;
 }
+
+export type WorkspaceImageDestination =
+  | {
+      readonly load: true;
+      readonly output?: never;
+    }
+  | {
+      readonly load?: false;
+      readonly output: string;
+    };
+
+export type WorkspaceImageOptions = CondaOperationOptions & {
+  readonly tag: string;
+  readonly command: readonly string[];
+} & WorkspaceImageDestination;
 
 export interface WorkspaceEnvironmentDeclaration extends WorkspaceEnvironment {
   readonly condaDependencies?: readonly string[];
@@ -105,6 +123,45 @@ export interface CondaWorkspaceDiscovery extends InstalledWorkspaceEnvironmentDi
 
 function absoluteManifestPath(manifest: string): string {
   return resolve(requireValue(manifest, 'manifest'));
+}
+
+export function workspaceImageArguments(
+  environment: string,
+  platform: string,
+  options: WorkspaceImageOptions,
+  dryRun = false,
+): string[] {
+  const hasOutput = options.output !== undefined;
+  if ((options.load === true) === hasOutput) {
+    throw new TypeError('workspace image requires exactly one load or output destination');
+  }
+  if (options.command.length === 0) {
+    throw new TypeError('workspace image command must not be empty');
+  }
+
+  const args = [
+    'image',
+    '-e',
+    requireValue(environment, 'environment'),
+    '--platform',
+    requireValue(platform, 'platform'),
+    '--tag',
+    requireValue(options.tag, 'tag'),
+  ];
+  if (options.load === true) {
+    args.push('--load');
+  } else {
+    args.push('--output', requireValue(options.output ?? '', 'output'));
+  }
+  if (dryRun) {
+    args.push('--dry-run', '--json');
+  }
+  args.push(
+    '--',
+    requireValue(options.command[0] ?? '', 'command[0]'),
+    ...options.command.slice(1),
+  );
+  return args;
 }
 
 function pythonExecutable(prefix: string, condaPlatform: string): string {
@@ -322,6 +379,21 @@ export class CondaWorkspacesClient extends CondaClient {
       options,
     );
     return parseWorkspaceSnapshot(result.stdout);
+  }
+
+  public async previewWorkspaceImage(
+    manifest: string,
+    environment: string,
+    platform: string,
+    options: WorkspaceImageOptions,
+  ): Promise<WorkspaceImagePreview> {
+    const result = await this.runManifestCommand(
+      'workspace',
+      manifest,
+      workspaceImageArguments(environment, platform, options, true),
+      options,
+    );
+    return parseWorkspaceImagePreview(result.stdout);
   }
 
   public async listEnvironments(

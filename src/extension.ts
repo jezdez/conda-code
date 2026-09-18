@@ -38,6 +38,7 @@ import {
   importWorkspaceEnvironment,
   removeWorkspaceEnvironment,
 } from './conda/workspaceActions';
+import { buildWorkspaceImage, previewWorkspaceImage } from './conda/workspaceImage';
 import {
   installLockedWorkspaceEnvironment,
   showWorkspaceLockStatus,
@@ -415,6 +416,32 @@ export async function activate(context: ExtensionContext): Promise<void> {
         return;
       }
       return exportWorkspaceLockfileSbom({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.previewWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return previewWorkspaceImage({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.buildWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return buildWorkspaceImage({
         api,
         environments: current.environments,
         log,

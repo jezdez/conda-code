@@ -133,6 +133,27 @@ conda-sboms 0.3.0 or newer in the configured conda installation.
 Use **Conda Code: Export Environment SBOM** when you want to export the selected
 installed prefix instead.
 
+## Preview or build a workspace image
+
+Run **Conda Code: Preview Workspace Image** to choose a declared environment,
+one of its `linux-64` or `linux-aarch64` platform resolutions, an image tag,
+and a default command. Enter the command executable separately and provide its
+arguments as a JSON string array. This keeps empty arguments and whitespace in
+individual arguments intact. The preview opens the generated Containerfile and
+included workspace file list as text documents. It uses `--dry-run --json` and
+does not require Docker.
+
+Run **Conda Code: Build Workspace Image** with the same selections, then choose
+whether to load the image into the local Docker image store or export an OCI
+archive. The build runs as a VS Code Task so its output remains visible and the
+operation can be cancelled. Builds require Docker with Buildx and a running
+daemon. Conda Code does not publish images to a registry.
+
+conda-workspaces validates the existing lockfile, activation settings,
+dependencies, selected files, and output destination. The action never updates
+the workspace manifest or lockfile. Python path, Git, and URL dependencies are
+not supported by conda-workspaces 0.10 image builds.
+
 ## Create, import, or remove a declaration
 
 Run **Conda Code: Create Workspace Environment** to add a named declaration to

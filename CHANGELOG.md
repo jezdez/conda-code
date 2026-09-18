@@ -11,6 +11,9 @@
   selected declared platform, with optional reproducible CycloneDX output
 - Show conda-workspaces manifest validation failures in the Problems panel and
   clear them when the manifest is corrected, removed, or no longer owned
+- Preview locked Linux workspace image recipes and included files without
+  Docker, then build to the local Docker image store or an OCI archive through
+  cancellable VS Code Tasks
 
 ## 0.7.0
 
