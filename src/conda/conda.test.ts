@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { CondaClient } from './conda';
+import { CondaClient, CondaCommandError } from './conda';
 import { type CommandResult, type CommandRunner, type RunCommandOptions } from './runner';
 
 interface RecordedCall {
@@ -325,6 +325,34 @@ test('regular conda failures use the structured JSON message', async () => {
       error.message.includes("'base' is a reserved environment name") &&
       !error.message.includes('unrelated warning'),
   );
+});
+
+test('regular conda failures retain structured JSON metadata', async () => {
+  const failure: CommandResult = {
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      error_message: 'Failed to parse workspace manifest',
+      message: 'Failed to parse workspace manifest\nCheck the file syntax and try again.',
+      path: '/work/project/conda.toml',
+      reason: 'Channel entries must be strings',
+    }),
+    stderr: '',
+  };
+  const client = new CondaClient({ runner: new RecordingRunner(() => failure) });
+
+  await assert.rejects(client.getInfo(), (error: unknown) => {
+    assert.ok(error instanceof CondaCommandError);
+    assert.equal(error.exitCode, 1);
+    assert.deepEqual(error.details, {
+      exception_name: 'WorkspaceParseError',
+      error_message: 'Failed to parse workspace manifest',
+      message: 'Failed to parse workspace manifest\nCheck the file syntax and try again.',
+      path: '/work/project/conda.toml',
+      reason: 'Channel entries must be strings',
+    });
+    return true;
+  });
 });
 
 test('regular conda mutations reject empty values before spawning', async () => {

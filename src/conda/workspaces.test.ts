@@ -439,6 +439,54 @@ test('discoverWorkspace falls back when the snapshot command is unavailable', as
   assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 2);
 });
 
+test('discoverWorkspace does not retry manifest validation through legacy discovery', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const runner = new RecordingRunner(() => ({
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      error_message: `Failed to parse workspace manifest '${manifest}': invalid channel`,
+      message: `Failed to parse workspace manifest '${manifest}': invalid channel`,
+      path: manifest,
+      reason: 'invalid channel',
+    }),
+    stderr: '',
+  }));
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(client.discoverWorkspace(manifest, 'linux-64'), /invalid channel/);
+  assert.deepEqual(
+    runner.calls.map(({ args }) => args),
+    [['workspace', '--file', manifest, 'info', '--json', '--packages']],
+  );
+});
+
+test('discoverWorkspace does not retry a pyproject without workspace tables', async () => {
+  const manifest = path.resolve('/work/project/pyproject.toml');
+  const runner = new RecordingRunner(() => ({
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      path: manifest,
+      reason: 'No [tool.conda.workspace] or [tool.pixi.workspace] table found',
+      message: `Failed to parse workspace manifest '${manifest}'`,
+    }),
+    stderr: '',
+  }));
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(client.discoverWorkspace(manifest, 'linux-64'), /workspace manifest/);
+  assert.equal(runner.calls.length, 1);
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'info',
+    '--json',
+    '--packages',
+  ]);
+});
+
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const defaultPrefix = path.resolve('/work/.conda/default');

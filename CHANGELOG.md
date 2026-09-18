@@ -9,6 +9,8 @@
   lockfile explicitly, and install a selected environment with `--locked`
 - Export a declared workspace environment directly from `conda.lock` for a
   selected declared platform, with optional reproducible CycloneDX output
+- Show conda-workspaces manifest validation failures in the Problems panel and
+  clear them when the manifest is corrected, removed, or no longer owned
 
 ## 0.7.0
 
