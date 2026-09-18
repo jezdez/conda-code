@@ -19,13 +19,55 @@ import {
 
 import { requireValue } from './conda';
 import { isRunnableCondaExecutable } from './executable';
-import { type WorkspaceTask, CondaWorkspacesClient } from './workspaces';
+import {
+  type WorkspaceImageOptions,
+  type WorkspaceTask,
+  CondaWorkspacesClient,
+  workspaceImageArguments,
+} from './workspaces';
 import { normalizeEnvironmentPath } from './workspaceRouting';
 
 export const CONDA_WORKSPACE_TASK_TYPE = 'conda-workspace';
 
 const MANIFEST_NAMES = ['conda.toml', 'pixi.toml', 'pyproject.toml'] as const;
 const TASK_SOURCE = 'conda-workspaces';
+
+export type WorkspaceImageTaskOptions = WorkspaceImageOptions & {
+  readonly environment: string;
+  readonly platform: string;
+};
+
+export function createWorkspaceImageTask(
+  workspaces: CondaWorkspacesClient,
+  manifest: Uri,
+  options: WorkspaceImageTaskOptions,
+): Task {
+  const folder = workspace.getWorkspaceFolder(manifest);
+  const task = new Task(
+    {
+      type: 'conda-workspace-image',
+      environment: options.environment,
+      platform: options.platform,
+      tag: options.tag,
+    },
+    folder ?? TaskScope.Workspace,
+    `Build ${options.tag}`,
+    TASK_SOURCE,
+    new ProcessExecution(
+      workspaces.executable,
+      [
+        'workspace',
+        '--file',
+        manifest.fsPath,
+        ...workspaceImageArguments(options.environment, options.platform, options),
+      ],
+      { cwd: path.dirname(manifest.fsPath) },
+    ),
+    [],
+  );
+  task.detail = `Build ${options.environment} for ${options.platform}`;
+  return task;
+}
 
 export interface CondaWorkspaceTaskDefinition extends TaskDefinition {
   readonly type: typeof CONDA_WORKSPACE_TASK_TYPE;

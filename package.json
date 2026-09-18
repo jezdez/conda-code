@@ -68,6 +68,14 @@
         "title": "Conda Code: Export Workspace Lockfile SBOM"
       },
       {
+        "command": "conda-code.previewWorkspaceImage",
+        "title": "Conda Code: Preview Workspace Image"
+      },
+      {
+        "command": "conda-code.buildWorkspaceImage",
+        "title": "Conda Code: Build Workspace Image"
+      },
+      {
         "command": "conda-code.runWorkspaceTask",
         "title": "Conda Code: Run Workspace Task",
         "icon": "$(play)"

@@ -251,6 +251,98 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
   });
 });
 
+test('workspace image tasks use native process execution with exact command arguments', () => {
+  const { vscode, tasks } = modules();
+  const root = path.resolve('/work/project');
+  const manifest = vscode.Uri.file(path.join(root, 'conda.toml'));
+  const folder = { uri: vscode.Uri.file(root), name: 'project', index: 0 };
+  vscode.__state.folders = [folder];
+  const createWorkspaceImageTask = (
+    tasks as typeof tasks & {
+      createWorkspaceImageTask?: (
+        client: CondaWorkspacesClient,
+        manifest: VscodeUri,
+        options: {
+          readonly environment: string;
+          readonly platform: string;
+          readonly tag: string;
+          readonly command: readonly string[];
+          readonly load?: boolean;
+          readonly output?: string;
+        },
+      ) => VscodeTask;
+    }
+  ).createWorkspaceImageTask;
+  const client = { executable: '_conda' } as CondaWorkspacesClient;
+
+  assert.equal(typeof createWorkspaceImageTask, 'function');
+  const loadTask = createWorkspaceImageTask?.(client, manifest, {
+    environment: 'runtime',
+    platform: 'linux-arm-two',
+    tag: 'example:latest',
+    command: ['python', '', ' spaced ', '--message=hello world'],
+    load: true,
+  });
+  assert.equal(loadTask?.scope, folder);
+  assert.equal(loadTask?.name, 'Build example:latest');
+  assert.equal(loadTask?.source, 'conda-workspaces');
+  assert.deepEqual(loadTask?.problemMatchers, []);
+  assert.equal(
+    loadTask?.execution && 'process' in loadTask.execution && loadTask.execution.process,
+    '_conda',
+  );
+  assert.deepEqual(loadTask?.execution && 'args' in loadTask.execution && loadTask.execution.args, [
+    'workspace',
+    '--file',
+    manifest.fsPath,
+    'image',
+    '-e',
+    'runtime',
+    '--platform',
+    'linux-arm-two',
+    '--tag',
+    'example:latest',
+    '--load',
+    '--',
+    'python',
+    '',
+    ' spaced ',
+    '--message=hello world',
+  ]);
+  assert.deepEqual(
+    loadTask?.execution && 'options' in loadTask.execution && loadTask.execution.options,
+    { cwd: root },
+  );
+
+  const outputTask = createWorkspaceImageTask?.(client, manifest, {
+    environment: 'runtime',
+    platform: 'linux-64',
+    tag: 'example:v1',
+    command: ['python', 'app.py'],
+    output: path.join(root, 'example.oci.tar'),
+  });
+  assert.deepEqual(
+    outputTask?.execution && 'args' in outputTask.execution && outputTask.execution.args,
+    [
+      'workspace',
+      '--file',
+      manifest.fsPath,
+      'image',
+      '-e',
+      'runtime',
+      '--platform',
+      'linux-64',
+      '--tag',
+      'example:v1',
+      '--output',
+      path.join(root, 'example.oci.tar'),
+      '--',
+      'python',
+      'app.py',
+    ],
+  );
+});
+
 test('provider lists tasks for only the requested confirmed manifest', async (t) => {
   const { vscode, tasks } = modules();
   const root = path.resolve('/work');

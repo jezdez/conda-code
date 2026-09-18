@@ -7,6 +7,7 @@ import {
   parseCondaPackages,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
+  parseWorkspaceImagePreview,
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
@@ -350,6 +351,34 @@ test('parseWorkspaceSnapshot accepts provenance without structured selectors', (
   );
 
   assert.equal(snapshot.environments[0]?.resolutions[0]?.dependencies[0]?.location, undefined);
+});
+
+test('parseWorkspaceImagePreview keeps the generated recipe and exact file list', () => {
+  assert.deepEqual(
+    parseWorkspaceImagePreview(
+      JSON.stringify({
+        success: true,
+        recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+        files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+        destination: { load: true },
+      }),
+    ),
+    {
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+      files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+    },
+  );
+});
+
+test('parseWorkspaceImagePreview rejects malformed preview fields', () => {
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: [], files: ['conda.toml'] })),
+    /recipe must be a string/,
+  );
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: 'FROM base', files: [3] })),
+    /files\[0\] must be a string/,
+  );
 });
 
 test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {
