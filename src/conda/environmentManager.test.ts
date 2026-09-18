@@ -1580,6 +1580,74 @@ test('workspace validation diagnostics follow scoped refresh and manifest owners
   assert.equal(diagnostics.disposed, true);
 });
 
+test('new invalid workspace pyprojects publish backend diagnostics without prior ownership', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-new-workspace-diagnostics-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const fixtures = [
+    {
+      name: 'conda',
+      contents: '[tool.conda.workspace]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'pixi',
+      contents: '[tool.pixi.workspace]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'ordinary',
+      contents: '[project]\nname =\n',
+      messages: [],
+    },
+  ].map((fixture) => {
+    const project = vscode.Uri.file(path.join(root, fixture.name));
+    return {
+      ...fixture,
+      project,
+      manifest: vscode.Uri.file(path.join(project.fsPath, 'pyproject.toml')),
+    };
+  });
+  for (const fixture of fixtures) {
+    await mkdir(fixture.project.fsPath);
+    await writeFile(fixture.manifest.fsPath, fixture.contents);
+  }
+  const projects = fixtures.map(({ project }) => project);
+  vscode.__state.files = fixtures.map(({ manifest }) => manifest);
+  vscode.__state.folders = projects.map((uri) => ({ uri }));
+  const workspaces = {
+    discoverWorkspace: async (manifest: string) => {
+      throw new CondaCommandError('conda failed to parse workspace', 1, {
+        exception_name: 'WorkspaceParseError',
+        path: manifest,
+        reason: 'Expected a value',
+        line: 2,
+        column: 7,
+      });
+    },
+  } as unknown as CondaWorkspacesClient;
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi(projects),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  await manager.refresh(undefined);
+
+  const diagnostics = vscode.__state.diagnosticCollections.at(-1);
+  assert.ok(diagnostics);
+  for (const fixture of fixtures) {
+    assert.deepEqual(
+      diagnostics.values.get(fixture.manifest.toString())?.map(({ message }) => message) ?? [],
+      fixture.messages,
+      fixture.name,
+    );
+  }
+});
+
 test('a former workspace pyproject becomes unowned when its workspace table is removed', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'conda-code-former-workspace-'));
   t.after(() => rm(root, { recursive: true, force: true }));
