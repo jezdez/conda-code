@@ -387,3 +387,46 @@ test('workspace SBOM export identifies an unsupported conda-workspaces backend',
   assert.deepEqual(calls, []);
   assert.match(vscode.__state.errors[0] ?? '', /conda-workspaces 0\.9 or newer/);
 });
+
+test('workspace SBOM export rejects a changed manifest or selected platform', async () => {
+  const { vscode, workspaceSbom } = modules();
+  const original = snapshot();
+  const environment = original.environments[0]!;
+  for (const changed of [
+    snapshot(path.resolve('/work/other/conda.toml')),
+    snapshot(undefined, [{ ...environment, resolutions: [environment.resolutions[0]!] }]),
+  ]) {
+    reset(vscode);
+    const calls: ExportCall[] = [];
+    const actionOptions = options(vscode, calls, [original, changed]);
+    vscode.__state.quickPickResults.push(0, 1, 0);
+    vscode.__state.destination = vscode.Uri.file('/work/demo/analysis.cdx.json');
+
+    await workspaceSbom.exportWorkspaceLockfileSbom(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.match(vscode.__state.errors[0] ?? '', /(?:ownership|platform declaration) changed/i);
+  }
+});
+
+test('cancelling SBOM environment, output mode, or destination performs no export', async () => {
+  const { vscode, workspaceSbom } = modules();
+  for (const picks of [[undefined], [0, 0, undefined], [0, 0, 0]]) {
+    reset(vscode);
+    const calls: ExportCall[] = [];
+    const actionOptions = options(vscode, calls);
+    vscode.__state.quickPickResults.push(...picks);
+    if (picks.includes(undefined)) {
+      vscode.__state.destination = vscode.Uri.file('/work/demo/analysis.cdx.json');
+    }
+
+    await workspaceSbom.exportWorkspaceLockfileSbom(actionOptions);
+
+    assert.deepEqual(calls, []);
+    assert.deepEqual(actionOptions.environments.refreshCalls, []);
+    assert.deepEqual(vscode.__state.information, []);
+    assert.deepEqual(vscode.__state.errors, []);
+    assert.equal(vscode.__state.saveDialogCalls.length, picks.includes(undefined) ? 0 : 1);
+  }
+});
