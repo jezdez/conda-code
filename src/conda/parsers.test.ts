@@ -142,7 +142,8 @@ test('parseWorkspaceInfo reads workspace identity and available features', () =>
       features: ['docs', 'test'],
       version: 1,
       channels: 'ignored',
-      lockfile_status: null,
+      lockfile_status: 'out-of-date',
+      lockfile_reason: 'manifest dependencies changed',
     }),
   );
 
@@ -150,6 +151,8 @@ test('parseWorkspaceInfo reads workspace identity and available features', () =>
     manifest: '/work/conda.toml',
     name: 'demo',
     features: ['docs', 'test'],
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'manifest dependencies changed',
   });
 });
 
@@ -215,6 +218,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
       JSON.stringify({
         manifest: '/work/conda.toml',
         name: 'demo',
+        lockfile_status: 'up-to-date',
         environment_details: [
           {
             name: 'test',
@@ -273,6 +277,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
     {
       manifest: '/work/conda.toml',
       name: 'demo',
+      lockfileStatus: 'up-to-date',
       environments: [
         {
           name: 'test',

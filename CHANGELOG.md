@@ -5,6 +5,8 @@
 - Create workspace environment declarations with selected features, import
   `environment.yml` declarations, and remove declarations after confirmation
   through command-palette actions backed by conda-workspaces 0.9 or newer
+- Show workspace-wide lockfile status and its reported reason, update the
+  lockfile explicitly, and install a selected environment with `--locked`
 
 ## 0.7.0
 

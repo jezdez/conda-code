@@ -69,6 +69,18 @@
         "icon": "$(play)"
       },
       {
+        "command": "conda-code.showWorkspaceLockStatus",
+        "title": "Conda Code: Show Workspace Lockfile Status"
+      },
+      {
+        "command": "conda-code.updateWorkspaceLockfile",
+        "title": "Conda Code: Update Workspace Lockfile"
+      },
+      {
+        "command": "conda-code.installLockedWorkspaceEnvironment",
+        "title": "Conda Code: Install Workspace Environment from Lockfile"
+      },
+      {
         "command": "conda-code.createWorkspaceEnvironment",
         "title": "Conda Code: Create Workspace Environment"
       },

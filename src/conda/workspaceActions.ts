@@ -151,7 +151,7 @@ export async function refreshWorkspaceActionContext(
   return info;
 }
 
-async function selectInstalledEnvironment(
+export async function selectInstalledWorkspaceEnvironment(
   options: WorkspaceActionOptions,
   context: WorkspaceActionContext,
   environmentName: string,
@@ -286,7 +286,7 @@ export async function createWorkspaceEnvironment(options: WorkspaceActionOptions
           featureOptions,
         );
         await options.environments.refresh(context.projectUri);
-        await selectInstalledEnvironment(options, context, environmentName);
+        await selectInstalledWorkspaceEnvironment(options, context, environmentName);
       },
     );
     await window.showInformationMessage(`Created workspace environment ${environmentName}.`);
@@ -347,7 +347,7 @@ export async function importWorkspaceEnvironment(
           selectedDefinition.fsPath,
         );
         await options.environments.refresh(context.projectUri);
-        await selectInstalledEnvironment(options, context, environmentName);
+        await selectInstalledWorkspaceEnvironment(options, context, environmentName);
       },
     );
     await window.showInformationMessage(`Imported workspace environment ${environmentName}.`);

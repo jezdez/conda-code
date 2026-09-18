@@ -173,6 +173,8 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
     success({
       manifest,
       name: 'demo',
+      lockfile_status: 'out-of-date',
+      lockfile_reason: 'feature test changed',
       environment_details: [
         {
           name: 'test',
@@ -230,7 +232,12 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
   const discovery = await client.discoverWorkspace(manifest, condaPlatform);
 
   assert.equal(discovery.snapshotAvailable, true);
-  assert.deepEqual(discovery.info, { manifest, name: 'demo' });
+  assert.deepEqual(discovery.info, {
+    manifest,
+    name: 'demo',
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'feature test changed',
+  });
   assert.deepEqual(discovery.declaredEnvironments, [
     {
       name: 'test',
@@ -508,6 +515,8 @@ test('mutation methods build scoped, non-interactive commands', async () => {
   const client = new CondaWorkspacesClient({ runner });
 
   await client.installEnvironment(manifest, 'test');
+  await client.installLockedEnvironment(manifest, 'locked');
+  await client.updateLockfile(manifest);
   await client.cleanEnvironment(manifest, 'test');
   await client.addDependencies(manifest, ['pytest>=9'], {
     noInstall: true,
@@ -531,6 +540,8 @@ test('mutation methods build scoped, non-interactive commands', async () => {
     runner.calls.map(({ args }) => args),
     [
       ['workspace', '--file', manifest, 'install', '--yes', '--json', '-e', 'test'],
+      ['workspace', '--file', manifest, 'install', '--yes', '--json', '--locked', '-e', 'locked'],
+      ['workspace', '--file', manifest, 'lock', '--yes', '--json'],
       ['workspace', '--file', manifest, 'clean', '--yes', '--json', '-e', 'test'],
       [
         'workspace',

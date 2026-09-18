@@ -25,6 +25,7 @@ import type {
   DependencyChangeOptions,
   InstalledWorkspaceEnvironment,
   WorkspaceDependency,
+  WorkspaceInfo,
 } from './workspaces';
 
 const VSCODE_STUB_URL = 'conda-code-test:vscode';
@@ -2701,6 +2702,51 @@ test('workspace prefixes stay excluded through filesystem aliases', async (t) =>
   assert.equal(environments.length, 1);
   assert.equal(environments[0]?.environmentPath.fsPath, prefix);
   assert.equal(environments[0]?.description, 'workspace environment');
+});
+
+test('workspace lockfile status refreshes cached environment descriptions and tooltips', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'conda-code-workspace-lock-status-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const projectPath = path.join(root, 'project');
+  const manifestPath = path.join(projectPath, 'conda.toml');
+  await mkdir(projectPath);
+  await writeFile(manifestPath, '[workspace]\nname = "demo"\n');
+  let current: Pick<WorkspaceInfo, 'lockfileStatus' | 'lockfileReason'> = {
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'dependency python changed',
+  };
+  const workspaces = {
+    discoverWorkspace: async () => {
+      const discovery = installedWorkspaceDiscovery(manifestPath, 'demo', '3.13.5');
+      return { ...discovery, info: { ...discovery.info, ...current } };
+    },
+  } as unknown as CondaWorkspacesClient;
+  const { vscode, environmentManager, CondaSelectionState } = modules();
+  const project = vscode.Uri.file(projectPath);
+  vscode.__state.files = [vscode.Uri.file(manifestPath)];
+  vscode.__state.folders = [{ uri: project }];
+  const manager = new environmentManager.CondaEnvironmentManager(
+    pythonApi([project]),
+    { getInfo: async () => condaInfo(path.join(root, 'base')) } as unknown as CondaClient,
+    workspaces,
+    new CondaSelectionState(memory()),
+    'jezdez.conda-code:conda',
+  );
+  t.after(() => manager.dispose());
+
+  const stale = (await manager.getEnvironments('all'))[0];
+  assert.equal(stale?.description, 'workspace environment · workspace lockfile stale');
+  assert.equal(
+    stale?.tooltip,
+    `${manifestPath}\nWorkspace lockfile stale: dependency python changed`,
+  );
+
+  current = { lockfileStatus: 'up-to-date', lockfileReason: '' };
+  await manager.refresh(project);
+  const refreshed = (await manager.getEnvironments(project))[0];
+  assert.notStrictEqual(refreshed, stale);
+  assert.equal(refreshed?.description, 'workspace environment · workspace lockfile current');
+  assert.equal(refreshed?.tooltip, `${manifestPath}\nWorkspace lockfile current`);
 });
 
 test('workspace environments activate by prefix from the current conda root', async (t) => {

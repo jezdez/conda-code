@@ -54,6 +54,8 @@ Each published workspace environment records its manifest, Python project,
 environment name, features, direct dependencies, installed packages, prefix,
 and Python path. A complete snapshot can also report the exact environment,
 feature, platform, or top-level default declaration for a direct dependency.
+The environment description and tooltip show the workspace-wide lockfile
+status and its reported reason when conda-workspaces provides them.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code
