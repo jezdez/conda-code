@@ -86,6 +86,11 @@ export interface WorkspaceSnapshot extends WorkspaceInfo {
   readonly environments: readonly WorkspaceSnapshotEnvironment[];
 }
 
+export interface WorkspaceImagePreview {
+  readonly recipe: string;
+  readonly files: readonly string[];
+}
+
 export interface WorkspaceQuickstartResult {
   readonly environment: string;
   readonly manifest: string | null;
@@ -411,6 +416,15 @@ export function parseWorkspaceSnapshot(text: string): WorkspaceSnapshot {
         packages,
       };
     }),
+  };
+}
+
+export function parseWorkspaceImagePreview(text: string): WorkspaceImagePreview {
+  const path = 'conda workspace image';
+  const value = expectRecord(parseJson(text, path), path);
+  return {
+    recipe: expectString(value.recipe, `${path}.recipe`),
+    files: expectStringArray(value.files, `${path}.files`),
   };
 }
 

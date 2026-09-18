@@ -335,6 +335,118 @@ test('getWorkspaceSnapshot returns declared environments and rich platform resol
   ]);
 });
 
+test('workspace image preview preserves declared platform and every command argument', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const runner = new RecordingRunner(() =>
+    success({
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "", " spaced "]\n',
+      files: ['conda.toml', 'src/app.py'],
+    }),
+  );
+  const client = new CondaWorkspacesClient({
+    runner,
+    condaExecutable: '_conda',
+  }) as CondaWorkspacesClient & {
+    previewWorkspaceImage?: (
+      manifest: string,
+      environment: string,
+      platform: string,
+      imageOptions: {
+        readonly tag: string;
+        readonly command: readonly string[];
+        readonly load?: boolean;
+        readonly output?: string;
+      },
+    ) => Promise<unknown>;
+  };
+
+  assert.equal(typeof client.previewWorkspaceImage, 'function');
+  assert.deepEqual(
+    await client.previewWorkspaceImage?.(manifest, 'runtime', 'linux-arm-one', {
+      tag: 'example:latest',
+      command: ['python', '', ' spaced ', '--message=hello world'],
+      load: true,
+    }),
+    {
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "", " spaced "]\n',
+      files: ['conda.toml', 'src/app.py'],
+    },
+  );
+  assert.deepEqual(runner.calls[0], {
+    executable: '_conda',
+    args: [
+      'workspace',
+      '--file',
+      manifest,
+      'image',
+      '-e',
+      'runtime',
+      '--platform',
+      'linux-arm-one',
+      '--tag',
+      'example:latest',
+      '--load',
+      '--dry-run',
+      '--json',
+      '--',
+      'python',
+      '',
+      ' spaced ',
+      '--message=hello world',
+    ],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: path.dirname(manifest),
+    },
+  });
+});
+
+test('workspace image preview supports one OCI output destination', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const output = path.resolve('/work/project/example.oci.tar');
+  const runner = new RecordingRunner(() => success({ recipe: 'FROM base\n', files: [] }));
+  const client = new CondaWorkspacesClient({ runner }) as CondaWorkspacesClient & {
+    previewWorkspaceImage?: (
+      manifest: string,
+      environment: string,
+      platform: string,
+      imageOptions: {
+        readonly tag: string;
+        readonly command: readonly string[];
+        readonly output: string;
+      },
+    ) => Promise<unknown>;
+  };
+
+  assert.equal(typeof client.previewWorkspaceImage, 'function');
+  await client.previewWorkspaceImage?.(manifest, 'runtime', 'linux-64', {
+    tag: 'example:v1',
+    command: ['python', 'app.py'],
+    output,
+  });
+
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'image',
+    '-e',
+    'runtime',
+    '--platform',
+    'linux-64',
+    '--tag',
+    'example:v1',
+    '--output',
+    output,
+    '--dry-run',
+    '--json',
+    '--',
+    'python',
+    'app.py',
+  ]);
+});
+
 test('discoverWorkspace uses environment platform order for rich host resolutions', async () => {
   const manifest = path.resolve('/work/project/conda.toml');
   const condaPlatform = process.platform === 'win32' ? 'win-64' : 'linux-64';
