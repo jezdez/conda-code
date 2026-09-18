@@ -530,3 +530,155 @@ test('old conda-workspaces named import errors identify the required version', a
 
   assert.match(vscode.__state.errors[0] ?? '', /conda-workspaces 0\.9 or newer/);
 });
+
+test('creation rejects features or a manifest changed while prompts were open', async () => {
+  const { actions, vscode } = modules();
+  for (const change of ['features', 'manifest'] as const) {
+    reset(vscode);
+    const calls: WorkspaceCall[] = [];
+    const actionOptions = options(vscode, calls);
+    let reads = 0;
+    actionOptions.workspaces.getWorkspaceInfo = async (manifest) => {
+      reads += 1;
+      return {
+        manifest:
+          reads > 1 && change === 'manifest' ? path.resolve('/work/other/conda.toml') : manifest,
+        name: 'demo',
+        features: reads > 1 && change === 'features' ? [] : ['docs'],
+      };
+    };
+    vscode.__state.inputs.push('analysis');
+    vscode.__state.quickPickResults.push([1]);
+
+    await actions.createWorkspaceEnvironment(actionOptions);
+
+    assert.deepEqual(calls, [], change);
+    assert.deepEqual(actionOptions.environments.setCalls, [], change);
+    assert.deepEqual(vscode.__state.information, [], change);
+    assert.match(vscode.__state.errors[0] ?? '', /changed while the action was being prepared/i);
+  }
+});
+
+test('creation selects only an installed environment with the matching workspace route', async () => {
+  const { actions, vscode } = modules();
+  for (const mismatch of ['missing route', 'environment', 'project', 'manifest'] as const) {
+    reset(vscode);
+    const calls: WorkspaceCall[] = [];
+    const actionOptions = options(vscode, calls);
+    const installed = addInstalledEnvironment(vscode, actionOptions, 'analysis');
+    const impostor = { ...installed, envId: { ...installed.envId, id: 'unrelated' } };
+    actionOptions.environments.environments.unshift(impostor);
+    if (mismatch !== 'missing route') {
+      actionOptions.environments.routes.set(impostor, {
+        ...actionOptions.environments.routes.get(installed)!,
+        environmentName: mismatch === 'environment' ? 'other' : 'analysis',
+        projectUri: vscode.Uri.file(mismatch === 'project' ? '/work/other' : '/work/demo'),
+        manifestUri: vscode.Uri.file(
+          mismatch === 'manifest' ? '/work/demo/pyproject.toml' : '/work/demo/conda.toml',
+        ),
+      });
+    }
+    vscode.__state.inputs.push('analysis');
+    vscode.__state.quickPickResults.push([0]);
+
+    await actions.createWorkspaceEnvironment(actionOptions);
+
+    assert.deepEqual(
+      actionOptions.environments.setCalls,
+      [{ scope: vscode.Uri.file('/work/demo'), environment: installed }],
+      mismatch,
+    );
+    assert.deepEqual(vscode.__state.errors, [], mismatch);
+  }
+});
+
+test('removal uses the selected declaration among multiple environments', async () => {
+  const { actions, vscode } = modules();
+  reset(vscode);
+  const calls: WorkspaceCall[] = [];
+  const actionOptions = options(vscode, calls, undefined, [
+    { name: 'default', features: [], installed: true },
+    { name: 'docs', features: ['docs'], installed: false },
+  ]);
+  vscode.__state.quickPickResults.push(1);
+  vscode.__state.warningResults.push('Remove Declaration');
+
+  await actions.removeWorkspaceEnvironment(actionOptions);
+
+  assert.deepEqual(calls, [
+    {
+      operation: 'remove',
+      manifest: path.resolve('/work/demo/conda.toml'),
+      environment: 'docs',
+    },
+  ]);
+  assert.match(vscode.__state.warningCalls[0]?.message ?? '', /docs declaration/);
+  assert.deepEqual(vscode.__state.errors, []);
+});
+
+test('import rejects unsupported files before asking for a name or changing the workspace', async () => {
+  const { actions, vscode } = modules();
+  reset(vscode);
+  const calls: WorkspaceCall[] = [];
+  const actionOptions = options(vscode, calls);
+
+  await actions.importWorkspaceEnvironment(
+    actionOptions,
+    vscode.Uri.file('/work/requirements.txt'),
+  );
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(actionOptions.environments.refreshCalls, []);
+  assert.deepEqual(vscode.__state.inputCalls, []);
+  assert.match(vscode.__state.errors[0] ?? '', /accepts only environment.yml or environment.yaml/);
+});
+
+test('cancelling the feature picker does not create a declaration with default options', async () => {
+  const { actions, vscode } = modules();
+  reset(vscode);
+  const calls: WorkspaceCall[] = [];
+  const actionOptions = options(vscode, calls);
+  vscode.__state.inputs.push('analysis');
+  vscode.__state.quickPickResults.push(undefined);
+
+  await actions.createWorkspaceEnvironment(actionOptions);
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(actionOptions.environments.refreshCalls, []);
+  assert.deepEqual(vscode.__state.information, []);
+  assert.deepEqual(vscode.__state.errors, []);
+});
+
+test('workspace selection honors the picker and excludes manifests owned only by a parent project', async () => {
+  const { actions, vscode } = modules();
+  const alpha = vscode.Uri.file('/work/alpha');
+  const beta = vscode.Uri.file('/work/beta');
+  for (const [selection, expected] of [
+    [0, alpha],
+    [1, beta],
+    [undefined, undefined],
+  ] as const) {
+    reset(vscode);
+    vscode.__state.quickPickResults.push(selection);
+    const context = await actions.selectWorkspaceActionContext({
+      api: {
+        getPythonProject: (uri: VscodeUri) =>
+          uri.fsPath.startsWith(alpha.fsPath) ? { uri: alpha } : { uri: beta },
+      } as PythonEnvironmentApi,
+      environments: {
+        getWorkspaceManifests: async () => [
+          vscode.Uri.file('/work/beta/conda.toml'),
+          vscode.Uri.file('/work/alpha/nested/conda.toml'),
+          vscode.Uri.file('/work/alpha/conda.toml'),
+        ],
+      } as WorkspaceActionEnvironmentManager,
+    });
+
+    assert.deepEqual(
+      vscode.__state.quickPickCalls[0]?.items.map(({ label }) => label),
+      ['alpha', 'beta'],
+    );
+    assert.equal(context?.projectUri.fsPath, expected?.fsPath);
+    assert.deepEqual(vscode.__state.errors, []);
+  }
+});
