@@ -1,6 +1,11 @@
 import { dirname, posix, resolve, win32 } from 'node:path';
 
-import { CondaClient, type CondaClientOperationOptions, requireValue } from './conda';
+import {
+  CondaClient,
+  CondaCommandError,
+  type CondaClientOperationOptions,
+  requireValue,
+} from './conda';
 import {
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
@@ -115,6 +120,65 @@ function snapshotOptionIsUnsupported(error: unknown): boolean {
   );
 }
 
+export interface WorkspaceManifestValidationError {
+  readonly message: string;
+  readonly line?: number;
+  readonly column?: number;
+  readonly endLine?: number;
+  readonly endColumn?: number;
+}
+
+function workspaceParseErrorDetails(error: unknown): Readonly<Record<string, unknown>> | undefined {
+  return error instanceof CondaCommandError &&
+    error.details?.exception_name === 'WorkspaceParseError'
+    ? error.details
+    : undefined;
+}
+
+export function isWorkspaceManifestParseError(error: unknown): boolean {
+  return workspaceParseErrorDetails(error) !== undefined;
+}
+
+export function workspaceManifestIsAbsentError(error: unknown): boolean {
+  const reason = workspaceParseErrorDetails(error)?.reason;
+  return (
+    typeof reason === 'string' &&
+    /^No \[tool\.conda\.workspace\] or \[tool\.pixi\.workspace\] table found\.?$/.test(
+      reason.trim(),
+    )
+  );
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+export function workspaceManifestValidationError(
+  error: unknown,
+): WorkspaceManifestValidationError | undefined {
+  const details = workspaceParseErrorDetails(error);
+  if (details === undefined || workspaceManifestIsAbsentError(error)) {
+    return undefined;
+  }
+  const message = [details.reason, details.error_message, details.message].find(
+    (value): value is string => typeof value === 'string' && value.trim() !== '',
+  );
+  if (message === undefined) {
+    return undefined;
+  }
+  const line = positiveInteger(details.line);
+  const column = positiveInteger(details.column);
+  const endLine = positiveInteger(details.end_line);
+  const endColumn = positiveInteger(details.end_column);
+  return {
+    message: message.trim(),
+    ...(line === undefined ? {} : { line }),
+    ...(column === undefined ? {} : { column }),
+    ...(endLine === undefined ? {} : { endLine }),
+    ...(endColumn === undefined ? {} : { endColumn }),
+  };
+}
+
 function hostSnapshotResolution(
   environment: WorkspaceSnapshotEnvironment,
   condaPlatform: string,
@@ -208,6 +272,9 @@ export class CondaWorkspacesClient extends CondaClient {
         };
       } catch (error) {
         if (options.signal?.aborted === true) {
+          throw error;
+        }
+        if (isWorkspaceManifestParseError(error)) {
           throw error;
         }
         this.snapshotUnsupported = snapshotOptionIsUnsupported(error);
