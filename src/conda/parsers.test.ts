@@ -134,11 +134,12 @@ test('parseCondaMutationPrefix accepts current and legacy conda result shapes', 
   );
 });
 
-test('parseWorkspaceInfo reads only fields used by discovery', () => {
+test('parseWorkspaceInfo reads workspace identity and available features', () => {
   const info = parseWorkspaceInfo(
     JSON.stringify({
       manifest: '/work/conda.toml',
       name: 'demo',
+      features: ['docs', 'test'],
       version: 1,
       channels: 'ignored',
       lockfile_status: null,
@@ -148,6 +149,7 @@ test('parseWorkspaceInfo reads only fields used by discovery', () => {
   assert.deepEqual(info, {
     manifest: '/work/conda.toml',
     name: 'demo',
+    features: ['docs', 'test'],
   });
 });
 

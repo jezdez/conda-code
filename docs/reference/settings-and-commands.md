@@ -102,3 +102,27 @@ workspace manifest, then runs the selected native VS Code task. A
 {octicon}`play` action appears in the editor title for `conda.toml`, `pixi.toml`,
 and `pyproject.toml`. Conda Code validates the active file before asking
 conda-workspaces for its tasks.
+
+### `Conda Code: Create Workspace Environment`
+
+Command ID: `conda-code.createWorkspaceEnvironment`
+
+Adds a named environment declaration to a selected existing workspace. The
+feature picker includes the default feature and every named feature reported by
+conda-workspaces. Clearing the default feature passes `--no-default-feature`.
+
+### `Conda Code: Import environment.yml into Workspace`
+
+Command ID: `conda-code.importWorkspaceEnvironment`
+
+Imports one `environment.yml` or `environment.yaml` as a new named environment
+in a selected existing workspace.
+
+### `Conda Code: Remove Workspace Environment Declaration`
+
+Command ID: `conda-code.removeWorkspaceEnvironment`
+
+Removes a selected environment declaration after a modal confirmation. The
+operation also removes its complete lock records and installed prefix. Deleting
+the environment from the Python Environments view only cleans the prefix and
+keeps the declaration.

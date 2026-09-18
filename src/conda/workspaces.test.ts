@@ -578,6 +578,72 @@ test('mutation methods build scoped, non-interactive commands', async () => {
   );
 });
 
+test('environment declaration methods keep lifecycle arguments separate', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const definition = path.resolve('/work/import/environment.yml');
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaWorkspacesClient({ runner });
+
+  await client.addEnvironment(manifest, 'analysis', {
+    features: ['test', 'cuda'],
+    noDefaultFeature: true,
+  });
+  await client.importEnvironment(manifest, 'legacy', definition);
+  await client.removeEnvironmentDeclaration(manifest, 'analysis');
+
+  assert.deepEqual(
+    runner.calls.map(({ args, options }) => ({ args, cwd: options?.cwd })),
+    [
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'add',
+          '--yes',
+          '--json',
+          '-e',
+          'analysis',
+          '--with-feature',
+          'test',
+          '--with-feature',
+          'cuda',
+          '--no-default-feature',
+        ],
+        cwd: path.dirname(manifest),
+      },
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'import',
+          '--yes',
+          '--json',
+          '-e',
+          'legacy',
+          definition,
+        ],
+        cwd: path.dirname(manifest),
+      },
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'remove',
+          '--yes',
+          '--json',
+          '-e',
+          'analysis',
+          '--all',
+        ],
+        cwd: path.dirname(manifest),
+      },
+    ],
+  );
+});
+
 test('quickstart runs in the target directory and parses its JSON result', async () => {
   const workspaceDirectory = path.resolve('/work/new');
   const runner = new RecordingRunner(() =>

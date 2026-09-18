@@ -33,6 +33,11 @@ import {
   runWorkspaceTask,
 } from './conda/tasks';
 import { normalizeEnvironmentPath } from './conda/workspaceRouting';
+import {
+  createWorkspaceEnvironment,
+  importWorkspaceEnvironment,
+  removeWorkspaceEnvironment,
+} from './conda/workspaceActions';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -46,6 +51,7 @@ interface CondaCodeRuntime extends Disposable {
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
   readonly tasks: CondaWorkspaceTaskProvider;
+  readonly workspaces: CondaWorkspacesClient;
   readonly forceCondaInfoEnrichment: () => Promise<void>;
 }
 
@@ -274,6 +280,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       environments,
       packages,
       tasks: taskProvider,
+      workspaces,
       forceCondaInfoEnrichment,
       dispose: () => {
         disposed = true;
@@ -399,6 +406,48 @@ export async function activate(context: ExtensionContext): Promise<void> {
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
       runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
     ),
+    commands.registerCommand('conda-code.createWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return createWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.importWorkspaceEnvironment', (definition?: Uri) => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return importWorkspaceEnvironment(
+        {
+          api,
+          environments: current.environments,
+          log,
+          scope: window.activeTextEditor?.document.uri,
+          workspaces: current.workspaces,
+        },
+        definition,
+      );
+    }),
+    commands.registerCommand('conda-code.removeWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return removeWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.createEnvironmentFromFile', async (definition?: Uri) => {
       const source = definition ?? window.activeTextEditor?.document.uri;
       const current = runtime;
