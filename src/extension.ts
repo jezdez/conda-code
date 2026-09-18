@@ -38,6 +38,11 @@ import {
   importWorkspaceEnvironment,
   removeWorkspaceEnvironment,
 } from './conda/workspaceActions';
+import {
+  installLockedWorkspaceEnvironment,
+  showWorkspaceLockStatus,
+  updateWorkspaceLockfile,
+} from './conda/workspaceLocks';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -406,6 +411,45 @@ export async function activate(context: ExtensionContext): Promise<void> {
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
       runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
     ),
+    commands.registerCommand('conda-code.showWorkspaceLockStatus', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return showWorkspaceLockStatus({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.updateWorkspaceLockfile', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return updateWorkspaceLockfile({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.installLockedWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return installLockedWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.createWorkspaceEnvironment', () => {
       const current = runtime;
       if (current === undefined) {

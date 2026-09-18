@@ -27,6 +27,7 @@ export type {
   WorkspaceEnvironment,
   WorkspaceEnvironmentInfo,
   WorkspaceInfo,
+  WorkspaceLockfileStatus,
   WorkspacePackage,
   WorkspaceQuickstartResult,
   WorkspaceTask,
@@ -175,7 +176,16 @@ export class CondaWorkspacesClient extends CondaClient {
           resolution: hostSnapshotResolution(environment, condaPlatform),
         }));
         return {
-          info: { manifest: snapshot.manifest, name: snapshot.name },
+          info: {
+            manifest: snapshot.manifest,
+            name: snapshot.name,
+            ...(snapshot.lockfileStatus === undefined
+              ? {}
+              : { lockfileStatus: snapshot.lockfileStatus }),
+            ...(snapshot.lockfileReason === undefined
+              ? {}
+              : { lockfileReason: snapshot.lockfileReason }),
+          },
           environments: details
             .filter(({ source }) => source.installed)
             .map(({ environment }) => environment),
@@ -349,6 +359,26 @@ export class CondaWorkspacesClient extends CondaClient {
       args.push('-e', requireValue(environment, 'environment'));
     }
     return this.runManifestCommand('workspace', manifest, args, options);
+  }
+
+  public installLockedEnvironment(
+    manifest: string,
+    environment: string,
+    options: CondaOperationOptions = {},
+  ): Promise<CommandResult> {
+    return this.runManifestCommand(
+      'workspace',
+      manifest,
+      ['install', '--yes', '--json', '--locked', '-e', requireValue(environment, 'environment')],
+      options,
+    );
+  }
+
+  public updateLockfile(
+    manifest: string,
+    options: CondaOperationOptions = {},
+  ): Promise<CommandResult> {
+    return this.runManifestCommand('workspace', manifest, ['lock', '--yes', '--json'], options);
   }
 
   public cleanEnvironment(

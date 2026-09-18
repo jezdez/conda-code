@@ -101,6 +101,22 @@ Quick Create also adds Python when the declaration needs it. See
 [](../reference/environment-operations.md) for how additional packages are
 targeted with different conda-workspaces capabilities.
 
+To require the existing lockfile, run **Conda Code: Install Workspace
+Environment from Lockfile** and select a declaration. Conda Code calls
+`conda workspace install --locked` directly. A missing or stale lockfile stops
+the installation without solving or adding Quick Create packages.
+
+## Check or update the lockfile
+
+Run **Conda Code: Show Workspace Lockfile Status** to see whether the selected
+workspace lockfile is current, stale, or missing. The status applies to the
+whole workspace and includes the reason reported by conda-workspaces. It is
+available even when no workspace environment is installed.
+
+Run **Conda Code: Update Workspace Lockfile** to solve every declared
+environment and write the workspace lockfile. These lock actions require
+conda-workspaces 0.10 or newer.
+
 ## Create, import, or remove a declaration
 
 Run **Conda Code: Create Workspace Environment** to add a named declaration to
