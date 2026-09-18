@@ -472,6 +472,7 @@ export class CondaWorkspacesClient extends CondaClient {
       requireValue(platform, 'platform'),
       '--file',
       resolve(requireValue(file, 'file')),
+      '--json',
     ];
     if (options.reproducible === true) {
       args.push('--reproducible');

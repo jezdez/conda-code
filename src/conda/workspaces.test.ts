@@ -739,6 +739,7 @@ test('workspace SBOM export keeps manifest, destination, and rich platform argum
       'linux-cuda',
       '--file',
       destination,
+      '--json',
       '--reproducible',
     ],
     options: {
@@ -747,6 +748,57 @@ test('workspace SBOM export keeps manifest, destination, and rich platform argum
       cwd: path.dirname(manifest),
     },
   });
+});
+
+test('workspace SBOM export preserves a multiline structured backend error', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const destination = path.resolve('/work/output/analysis.cdx.json');
+  const backendMessage =
+    'CycloneDX export requires exact package records.\n' +
+    'Export an environment after generating a current lockfile.';
+  const runner = new RecordingRunner((_executable, args) =>
+    args.includes('--json')
+      ? {
+          exitCode: 1,
+          stdout: JSON.stringify({
+            success: false,
+            exception_name: 'CondaValueError',
+            message: backendMessage,
+          }),
+          stderr: '',
+        }
+      : {
+          exitCode: 1,
+          stdout: '',
+          stderr:
+            '╭─ Error ───────────────────────────────────────────╮\n' +
+            '│ CycloneDX export requires exact package records. │\n' +
+            '│ Export an environment after generating a current │\n' +
+            '╰───────────────────────────────────────────────────╯',
+        },
+  );
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(
+    client.exportWorkspaceSbom(manifest, 'analysis', 'linux-cuda', destination),
+    (error: unknown) => {
+      assert.equal((error as Error).message, `conda failed with ${backendMessage}`);
+      return true;
+    },
+  );
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'sbom',
+    '--environment',
+    'analysis',
+    '--platform',
+    'linux-cuda',
+    '--file',
+    destination,
+    '--json',
+  ]);
 });
 
 test('quickstart runs in the target directory and parses its JSON result', async () => {
