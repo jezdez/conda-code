@@ -357,6 +357,23 @@ test('creating a declaration can omit the default feature', async () => {
   assert.deepEqual(calls[0]?.options, { features: ['test'], noDefaultFeature: true });
 });
 
+test('creating a declaration preserves named features that differ from default by case', async () => {
+  const { actions, vscode } = modules();
+  reset(vscode);
+  const calls: WorkspaceCall[] = [];
+  const actionOptions = options(vscode, calls, ['default', 'Default', 'DEFAULT']);
+  vscode.__state.inputs.push('analysis');
+  vscode.__state.quickPickResults.push([1, 2]);
+
+  await actions.createWorkspaceEnvironment(actionOptions);
+
+  assert.deepEqual(calls[0]?.options, {
+    features: ['Default', 'DEFAULT'],
+    noDefaultFeature: true,
+  });
+  assert.deepEqual(vscode.__state.errors, []);
+});
+
 test('cancelling declaration creation has no side effects', async () => {
   const { actions, vscode } = modules();
   reset(vscode);
@@ -506,6 +523,21 @@ test('old conda-workspaces lifecycle errors identify the required version', asyn
   const actionOptions = options(vscode, calls);
   actionOptions.workspaces.addEnvironment = async () => {
     throw new Error("invalid choice: 'add'");
+  };
+  vscode.__state.inputs.push('analysis');
+  vscode.__state.quickPickResults.push([0]);
+
+  await actions.createWorkspaceEnvironment(actionOptions);
+
+  assert.match(vscode.__state.errors[0] ?? '', /conda-workspaces 0\.9 or newer/);
+});
+
+test('creation explains how to upgrade when older conda-workspaces requires package specs', async () => {
+  const { actions, vscode } = modules();
+  reset(vscode);
+  const actionOptions = options(vscode, []);
+  actionOptions.workspaces.addEnvironment = async () => {
+    throw new Error('conda workspace add: error: the following arguments are required: specs');
   };
   vscode.__state.inputs.push('analysis');
   vscode.__state.quickPickResults.push([0]);

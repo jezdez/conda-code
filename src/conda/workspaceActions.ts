@@ -121,10 +121,10 @@ export async function selectWorkspaceActionContext(
   return selected?.context;
 }
 
-export async function refreshWorkspaceActionContext(
+export async function refreshWorkspaceActionOwnership(
   options: WorkspaceActionOptions,
   context: WorkspaceActionContext,
-): Promise<WorkspaceInfo> {
+): Promise<void> {
   await options.environments.refresh(context.projectUri);
   const contexts = await workspaceActionContexts(options);
   const current = contexts.find(
@@ -135,7 +135,13 @@ export async function refreshWorkspaceActionContext(
   if (current === undefined) {
     throw new Error('Workspace ownership changed while the action was being prepared');
   }
+}
 
+export async function refreshWorkspaceActionContext(
+  options: WorkspaceActionOptions,
+  context: WorkspaceActionContext,
+): Promise<WorkspaceInfo> {
+  await refreshWorkspaceActionOwnership(options, context);
   const info = await options.workspaces.getWorkspaceInfo(context.manifestUri.fsPath);
   if (
     normalizeEnvironmentPath(info.manifest) !== normalizeEnvironmentPath(context.manifestUri.fsPath)
@@ -181,7 +187,7 @@ function unsupportedLifecycleMessage(
         message,
       )) ||
     (operation === 'create' &&
-      /(?:at least one|one or more).*(?:package|spec)|(?:package|spec).*(?:required|missing)/i.test(
+      /(?:at least one|one or more).*(?:package|spec)|(?:package|spec).*(?:required|missing)|the following arguments are required:.*\bspecs\b/i.test(
         message,
       ));
   return unsupported
@@ -224,7 +230,7 @@ async function selectWorkspaceFeatures(
       defaultFeature: true,
     },
     ...(info.features ?? [])
-      .filter((feature) => feature.toLowerCase() !== 'default')
+      .filter((feature) => feature !== 'default')
       .map((feature) => ({
         label: feature,
         description: 'Workspace feature',
