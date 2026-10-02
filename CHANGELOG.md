@@ -1,21 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 - Honor headless package requests without showing prompts or changing shared
   workspace declarations that require confirmation
-- Create workspace environment declarations with selected features, import
-  `environment.yml` declarations, and remove declarations after confirmation
-  through command-palette actions backed by conda-workspaces 0.9 or newer
-- Show workspace-wide lockfile status and its reported reason, update the
-  lockfile explicitly, and install a selected environment with `--locked`
-- Export a declared workspace environment directly from `conda.lock` for a
-  selected declared platform, with optional reproducible CycloneDX output
+- Create workspace environment declarations with selected features and import
+  `environment.yml` declarations through command-palette actions backed by
+  conda-workspaces 0.9 or newer. Removing a declaration deletes its lock records
+  and installed prefix after confirmation
+- Show workspace-wide lockfile status and its reported reason, update or repair
+  the lockfile explicitly, and install a selected environment with `--locked`.
+  Missing or stale locks stop installation without solving
+- Export CycloneDX SBOMs for declared workspace environments and platforms
+  directly from `conda.lock`, without installing an environment, with optional
+  reproducible output
 - Show conda-workspaces manifest validation failures in the Problems panel and
   clear them when the manifest is corrected, removed, or no longer owned
 - Preview locked Linux workspace image recipes and included files without
   Docker, then build to the local Docker image store or an OCI archive through
   cancellable VS Code Tasks
+- Recommend conda-workspaces 0.11.1 or newer for multi-platform locking to avoid
+  incorrect platform records when regenerating a lock after installation
 
 ## 0.7.0
 
