@@ -271,6 +271,82 @@ test('updating the lockfile rechecks ownership and refreshes displayed state', a
   ]);
 });
 
+test('updating the lockfile repairs invalid YAML without requiring lockfile status', async () => {
+  const { locks, vscode } = modules();
+  reset(vscode);
+  const calls: LockCall[] = [];
+  const actionOptions = options(vscode, calls, {
+    manifest: path.resolve('/work/demo/conda.toml'),
+    name: 'demo',
+  });
+  actionOptions.workspaces.getWorkspaceInfo = async () => {
+    throw new Error('Could not parse conda.lock: expected the node content');
+  };
+  const validatedManifests: string[] = [];
+  actionOptions.workspaces.listEnvironments = async (manifest) => {
+    validatedManifests.push(manifest);
+    return [{ name: 'default', features: [], installed: false }];
+  };
+
+  await locks.updateWorkspaceLockfile(actionOptions);
+
+  assert.deepEqual(calls, [{ operation: 'lock', manifest: path.resolve('/work/demo/conda.toml') }]);
+  assert.deepEqual(validatedManifests, [path.resolve('/work/demo/conda.toml')]);
+  assert.equal(actionOptions.environments.refreshCalls.length, 2);
+  assert.deepEqual(vscode.__state.information, ['Updated the workspace lockfile.']);
+  assert.deepEqual(vscode.__state.errors, []);
+});
+
+test('lockfile update rejects a manifest that the backend can no longer parse', async () => {
+  const { locks, vscode } = modules();
+  reset(vscode);
+  const calls: LockCall[] = [];
+  const actionOptions = options(vscode, calls, {
+    manifest: path.resolve('/work/demo/conda.toml'),
+    name: 'demo',
+  });
+  actionOptions.workspaces.listEnvironments = async () => {
+    throw new Error('The selected file is no longer a workspace manifest');
+  };
+
+  await locks.updateWorkspaceLockfile(actionOptions);
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(vscode.__state.information, []);
+  assert.match(vscode.__state.errors[0] ?? '', /no longer a workspace manifest/);
+});
+
+test('lockfile update rejects project and manifest changes during refresh', async () => {
+  const { locks, vscode } = modules();
+  for (const change of ['project', 'manifest'] as const) {
+    reset(vscode);
+    const calls: LockCall[] = [];
+    const actionOptions = options(vscode, calls, {
+      manifest: path.resolve('/work/demo/conda.toml'),
+      name: 'demo',
+    });
+    let refreshed = false;
+    actionOptions.environments.refresh = async () => {
+      refreshed = true;
+      if (change === 'manifest') {
+        actionOptions.environments.manifests = [vscode.Uri.file('/work/demo/pyproject.toml')];
+      }
+    };
+    if (change === 'project') {
+      actionOptions.api.getPythonProject = () =>
+        ({ uri: vscode.Uri.file(refreshed ? '/work' : '/work/demo') }) as ReturnType<
+          PythonEnvironmentApi['getPythonProject']
+        >;
+    }
+
+    await locks.updateWorkspaceLockfile(actionOptions);
+
+    assert.deepEqual(calls, [], change);
+    assert.deepEqual(vscode.__state.information, [], change);
+    assert.match(vscode.__state.errors[0] ?? '', /workspace ownership changed/i, change);
+  }
+});
+
 test('lockfile update fails closed when refreshed ownership disappears', async () => {
   const { locks, vscode } = modules();
   reset(vscode);

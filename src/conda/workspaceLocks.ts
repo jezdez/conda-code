@@ -2,6 +2,7 @@ import { ProgressLocation, type QuickPickItem, window } from 'vscode';
 
 import {
   refreshWorkspaceActionContext,
+  refreshWorkspaceActionOwnership,
   selectWorkspaceActionContext,
   selectInstalledWorkspaceEnvironment,
   type WorkspaceActionOptions,
@@ -97,7 +98,9 @@ export async function updateWorkspaceLockfile(options: WorkspaceActionOptions): 
         title: 'Updating workspace lockfile',
       },
       async () => {
-        await refreshWorkspaceActionContext(options, context);
+        await refreshWorkspaceActionOwnership(options, context);
+        // Validate the manifest without reading the lockfile that this action replaces.
+        await options.workspaces.listEnvironments(context.manifestUri.fsPath);
         await options.workspaces.updateLockfile(context.manifestUri.fsPath);
         await options.environments.refresh(context.projectUri);
       },
