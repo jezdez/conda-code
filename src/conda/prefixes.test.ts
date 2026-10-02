@@ -290,7 +290,7 @@ test('inspectCondaPrefix does not trust an unresolved primary root', async (t) =
   assert.equal(metadata?.ownerRoot, undefined);
 });
 
-test('prefix path helpers handle Windows and containment boundaries', () => {
+test('prefix helpers build Windows Python paths and reject paths outside managed directories', () => {
   assert.equal(
     pythonExecutablePath(String.raw`C:\envs\demo`, 'win-64'),
     String.raw`C:\envs\demo\python.exe`,

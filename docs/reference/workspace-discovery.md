@@ -37,6 +37,13 @@ discovery. Only installed environments are published. A declared but
 uninstalled environment becomes available through the environment creation
 flow.
 
+Manifest validation failures reported by conda-workspaces appear in the
+Problems panel on the affected manifest. Conda Code uses the backend message
+and location when available. Current conda-workspaces releases report these as
+file-level diagnostics. Correcting, removing, or changing ownership of the
+manifest clears the diagnostic on the next refresh. An invalid manifest is not
+retried through the older discovery commands.
+
 ## Pixi Code rule
 
 When `renan-r-santos.pixi-code` is installed, Conda Code skips:
@@ -54,6 +61,8 @@ Each published workspace environment records its manifest, Python project,
 environment name, features, direct dependencies, installed packages, prefix,
 and Python path. A complete snapshot can also report the exact environment,
 feature, platform, or top-level default declaration for a direct dependency.
+The environment description and tooltip show the workspace-wide lockfile
+status and its reported reason when conda-workspaces provides them.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code

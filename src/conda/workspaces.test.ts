@@ -173,6 +173,8 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
     success({
       manifest,
       name: 'demo',
+      lockfile_status: 'out-of-date',
+      lockfile_reason: 'feature test changed',
       environment_details: [
         {
           name: 'test',
@@ -230,7 +232,12 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
   const discovery = await client.discoverWorkspace(manifest, condaPlatform);
 
   assert.equal(discovery.snapshotAvailable, true);
-  assert.deepEqual(discovery.info, { manifest, name: 'demo' });
+  assert.deepEqual(discovery.info, {
+    manifest,
+    name: 'demo',
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'feature test changed',
+  });
   assert.deepEqual(discovery.declaredEnvironments, [
     {
       name: 'test',
@@ -265,6 +272,179 @@ test('discoverWorkspace reads installed environments and packages in one snapsho
     runner.calls.map(({ args }) => args),
     [['workspace', '--file', manifest, 'info', '--json', '--packages']],
   );
+});
+
+test('getWorkspaceSnapshot returns declared environments and rich platform resolutions', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const response = {
+    manifest,
+    name: 'demo',
+    environment_details: [
+      {
+        name: 'analysis',
+        features: ['cuda'],
+        platforms: ['linux-base', 'linux-cuda'],
+        prefix: path.resolve('/work/project/.conda/envs/analysis'),
+        installed: false,
+        resolutions: [
+          {
+            platform: 'linux-base',
+            subdir: 'linux-64',
+            conda_dependencies: {},
+            pypi_dependencies: {},
+          },
+          {
+            platform: 'linux-cuda',
+            subdir: 'linux-64',
+            conda_dependencies: {},
+            pypi_dependencies: {},
+          },
+        ],
+        packages: [],
+      },
+    ],
+  };
+  const runner = new RecordingRunner(() => success(response));
+  const client = new CondaWorkspacesClient({ runner });
+
+  assert.deepEqual(await client.getWorkspaceSnapshot(manifest), {
+    manifest,
+    name: 'demo',
+    environments: [
+      {
+        name: 'analysis',
+        features: ['cuda'],
+        platforms: ['linux-base', 'linux-cuda'],
+        prefix: path.resolve('/work/project/.conda/envs/analysis'),
+        installed: false,
+        resolutions: [
+          { platform: 'linux-base', subdir: 'linux-64', dependencies: [] },
+          { platform: 'linux-cuda', subdir: 'linux-64', dependencies: [] },
+        ],
+        packages: [],
+      },
+    ],
+  });
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'info',
+    '--json',
+    '--packages',
+  ]);
+});
+
+test('workspace image preview preserves declared platform and every command argument', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const runner = new RecordingRunner(() =>
+    success({
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "", " spaced "]\n',
+      files: ['conda.toml', 'src/app.py'],
+    }),
+  );
+  const client = new CondaWorkspacesClient({
+    runner,
+    condaExecutable: '_conda',
+  }) as CondaWorkspacesClient & {
+    previewWorkspaceImage?: (
+      manifest: string,
+      environment: string,
+      platform: string,
+      imageOptions: {
+        readonly tag: string;
+        readonly command: readonly string[];
+        readonly load?: boolean;
+        readonly output?: string;
+      },
+    ) => Promise<unknown>;
+  };
+
+  assert.equal(typeof client.previewWorkspaceImage, 'function');
+  assert.deepEqual(
+    await client.previewWorkspaceImage?.(manifest, 'runtime', 'linux-arm-one', {
+      tag: 'example:latest',
+      command: ['python', '', ' spaced ', '--message=hello world'],
+      load: true,
+    }),
+    {
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "", " spaced "]\n',
+      files: ['conda.toml', 'src/app.py'],
+    },
+  );
+  assert.deepEqual(runner.calls[0], {
+    executable: '_conda',
+    args: [
+      'workspace',
+      '--file',
+      manifest,
+      'image',
+      '-e',
+      'runtime',
+      '--platform',
+      'linux-arm-one',
+      '--tag',
+      'example:latest',
+      '--load',
+      '--dry-run',
+      '--json',
+      '--',
+      'python',
+      '',
+      ' spaced ',
+      '--message=hello world',
+    ],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: path.dirname(manifest),
+    },
+  });
+});
+
+test('workspace image preview supports one OCI output destination', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const output = path.resolve('/work/project/example.oci.tar');
+  const runner = new RecordingRunner(() => success({ recipe: 'FROM base\n', files: [] }));
+  const client = new CondaWorkspacesClient({ runner }) as CondaWorkspacesClient & {
+    previewWorkspaceImage?: (
+      manifest: string,
+      environment: string,
+      platform: string,
+      imageOptions: {
+        readonly tag: string;
+        readonly command: readonly string[];
+        readonly output: string;
+      },
+    ) => Promise<unknown>;
+  };
+
+  assert.equal(typeof client.previewWorkspaceImage, 'function');
+  await client.previewWorkspaceImage?.(manifest, 'runtime', 'linux-64', {
+    tag: 'example:v1',
+    command: ['python', 'app.py'],
+    output,
+  });
+
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'image',
+    '-e',
+    'runtime',
+    '--platform',
+    'linux-64',
+    '--tag',
+    'example:v1',
+    '--output',
+    output,
+    '--dry-run',
+    '--json',
+    '--',
+    'python',
+    'app.py',
+  ]);
 });
 
 test('discoverWorkspace uses environment platform order for rich host resolutions', async () => {
@@ -369,6 +549,54 @@ test('discoverWorkspace falls back when the snapshot command is unavailable', as
   client.resetCapabilityCache();
   await client.discoverWorkspace(manifest, 'linux-64');
   assert.equal(runner.calls.filter(({ args }) => args.includes('--packages')).length, 2);
+});
+
+test('discoverWorkspace does not retry manifest validation through legacy discovery', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const runner = new RecordingRunner(() => ({
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      error_message: `Failed to parse workspace manifest '${manifest}': invalid channel`,
+      message: `Failed to parse workspace manifest '${manifest}': invalid channel`,
+      path: manifest,
+      reason: 'invalid channel',
+    }),
+    stderr: '',
+  }));
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(client.discoverWorkspace(manifest, 'linux-64'), /invalid channel/);
+  assert.deepEqual(
+    runner.calls.map(({ args }) => args),
+    [['workspace', '--file', manifest, 'info', '--json', '--packages']],
+  );
+});
+
+test('discoverWorkspace does not retry a pyproject without workspace tables', async () => {
+  const manifest = path.resolve('/work/project/pyproject.toml');
+  const runner = new RecordingRunner(() => ({
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      path: manifest,
+      reason: 'No [tool.conda.workspace] or [tool.pixi.workspace] table found',
+      message: `Failed to parse workspace manifest '${manifest}'`,
+    }),
+    stderr: '',
+  }));
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(client.discoverWorkspace(manifest, 'linux-64'), /workspace manifest/);
+  assert.equal(runner.calls.length, 1);
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'info',
+    '--json',
+    '--packages',
+  ]);
 });
 
 test('discoverInstalledEnvironments combines metadata and marks Python', async () => {
@@ -508,6 +736,8 @@ test('mutation methods build scoped, non-interactive commands', async () => {
   const client = new CondaWorkspacesClient({ runner });
 
   await client.installEnvironment(manifest, 'test');
+  await client.installLockedEnvironment(manifest, 'locked');
+  await client.updateLockfile(manifest);
   await client.cleanEnvironment(manifest, 'test');
   await client.addDependencies(manifest, ['pytest>=9'], {
     noInstall: true,
@@ -531,6 +761,8 @@ test('mutation methods build scoped, non-interactive commands', async () => {
     runner.calls.map(({ args }) => args),
     [
       ['workspace', '--file', manifest, 'install', '--yes', '--json', '-e', 'test'],
+      ['workspace', '--file', manifest, 'install', '--yes', '--json', '--locked', '-e', 'locked'],
+      ['workspace', '--file', manifest, 'lock', '--yes', '--json'],
       ['workspace', '--file', manifest, 'clean', '--yes', '--json', '-e', 'test'],
       [
         'workspace',
@@ -576,6 +808,157 @@ test('mutation methods build scoped, non-interactive commands', async () => {
       ],
     ],
   );
+});
+
+test('environment declaration methods keep lifecycle arguments separate', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const definition = path.resolve('/work/import/environment.yml');
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaWorkspacesClient({ runner });
+
+  await client.addEnvironment(manifest, 'analysis', {
+    features: ['test', 'cuda'],
+    noDefaultFeature: true,
+  });
+  await client.importEnvironment(manifest, 'legacy', definition);
+  await client.removeEnvironmentDeclaration(manifest, 'analysis');
+
+  assert.deepEqual(
+    runner.calls.map(({ args, options }) => ({ args, cwd: options?.cwd })),
+    [
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'add',
+          '--yes',
+          '--json',
+          '-e',
+          'analysis',
+          '--with-feature',
+          'test',
+          '--with-feature',
+          'cuda',
+          '--no-default-feature',
+        ],
+        cwd: path.dirname(manifest),
+      },
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'import',
+          '--yes',
+          '--json',
+          '-e',
+          'legacy',
+          definition,
+        ],
+        cwd: path.dirname(manifest),
+      },
+      {
+        args: [
+          'workspace',
+          '--file',
+          manifest,
+          'remove',
+          '--yes',
+          '--json',
+          '-e',
+          'analysis',
+          '--all',
+        ],
+        cwd: path.dirname(manifest),
+      },
+    ],
+  );
+});
+
+test('workspace SBOM export keeps manifest, destination, and rich platform arguments separate', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const destination = path.resolve('/work/output/analysis.cdx.json');
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaWorkspacesClient({ runner });
+
+  await client.exportWorkspaceSbom(manifest, 'analysis', 'linux-cuda', destination, {
+    reproducible: true,
+  });
+
+  assert.deepEqual(runner.calls[0], {
+    executable: 'conda',
+    args: [
+      'workspace',
+      '--file',
+      manifest,
+      'sbom',
+      '--environment',
+      'analysis',
+      '--platform',
+      'linux-cuda',
+      '--file',
+      destination,
+      '--json',
+      '--reproducible',
+    ],
+    options: {
+      signal: undefined,
+      maxOutputBytes: 4 * 1024 * 1024,
+      cwd: path.dirname(manifest),
+    },
+  });
+});
+
+test('workspace SBOM export preserves a multiline structured backend error', async () => {
+  const manifest = path.resolve('/work/project/conda.toml');
+  const destination = path.resolve('/work/output/analysis.cdx.json');
+  const backendMessage =
+    'CycloneDX export requires exact package records.\n' +
+    'Export an environment after generating a current lockfile.';
+  const runner = new RecordingRunner((_executable, args) =>
+    args.includes('--json')
+      ? {
+          exitCode: 1,
+          stdout: JSON.stringify({
+            success: false,
+            exception_name: 'CondaValueError',
+            message: backendMessage,
+          }),
+          stderr: '',
+        }
+      : {
+          exitCode: 1,
+          stdout: '',
+          stderr:
+            '╭─ Error ───────────────────────────────────────────╮\n' +
+            '│ CycloneDX export requires exact package records. │\n' +
+            '│ Export an environment after generating a current │\n' +
+            '╰───────────────────────────────────────────────────╯',
+        },
+  );
+  const client = new CondaWorkspacesClient({ runner });
+
+  await assert.rejects(
+    client.exportWorkspaceSbom(manifest, 'analysis', 'linux-cuda', destination),
+    (error: unknown) => {
+      assert.equal((error as Error).message, `conda failed with ${backendMessage}`);
+      return true;
+    },
+  );
+  assert.deepEqual(runner.calls[0]?.args, [
+    'workspace',
+    '--file',
+    manifest,
+    'sbom',
+    '--environment',
+    'analysis',
+    '--platform',
+    'linux-cuda',
+    '--file',
+    destination,
+    '--json',
+  ]);
 });
 
 test('quickstart runs in the target directory and parses its JSON result', async () => {

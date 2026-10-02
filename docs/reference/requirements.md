@@ -30,6 +30,20 @@ locations allow direct dependency removal and direct conda dependency updates.
 The 0.7-compatible discovery and single-feature package-add path remains
 available when those fields are absent.
 
+Creating, importing, and removing workspace environment declarations through
+the Command Palette requires conda-workspaces 0.9 or newer. Older supported
+versions remain available for discovery, installation, tasks, and compatible
+package operations.
+
+Workspace lockfile actions and workspace images require conda-workspaces 0.10
+or newer. For workspaces that target multiple platforms, use
+[conda-workspaces 0.11.1](https://github.com/conda-incubator/conda-workspaces/releases/tag/0.11.1)
+or newer. This release fixes lock regeneration after installation, which could
+write host-platform packages into another platform's lock records.
+
+Image builds also require Docker with Buildx and a running daemon. Image
+previews do not require Docker.
+
 ## Workspace PyPI dependencies
 
 Workspace `[pypi-dependencies]` support requires conda 26.5 or newer, which
@@ -68,6 +82,11 @@ using the channels configured for your conda distribution.
 [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
 the conda installation that owns the selected environment. Workspace
 environments use the configured primary conda installation.
+
+**Conda Code: Export Workspace Lockfile SBOM** requires conda-workspaces 0.9 or
+newer and conda-sboms 0.3.0 or newer in the configured primary conda
+installation. The workspace action reads exact package records from
+`conda.lock`, so it does not require an installed environment.
 
 (source-build)=
 

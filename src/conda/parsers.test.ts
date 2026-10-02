@@ -7,6 +7,7 @@ import {
   parseCondaPackages,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
+  parseWorkspaceImagePreview,
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
@@ -134,20 +135,25 @@ test('parseCondaMutationPrefix accepts current and legacy conda result shapes', 
   );
 });
 
-test('parseWorkspaceInfo reads only fields used by discovery', () => {
+test('parseWorkspaceInfo reads workspace identity and available features', () => {
   const info = parseWorkspaceInfo(
     JSON.stringify({
       manifest: '/work/conda.toml',
       name: 'demo',
+      features: ['docs', 'test'],
       version: 1,
       channels: 'ignored',
-      lockfile_status: null,
+      lockfile_status: 'out-of-date',
+      lockfile_reason: 'manifest dependencies changed',
     }),
   );
 
   assert.deepEqual(info, {
     manifest: '/work/conda.toml',
     name: 'demo',
+    features: ['docs', 'test'],
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'manifest dependencies changed',
   });
 });
 
@@ -213,6 +219,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
       JSON.stringify({
         manifest: '/work/conda.toml',
         name: 'demo',
+        lockfile_status: 'up-to-date',
         environment_details: [
           {
             name: 'test',
@@ -271,6 +278,7 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
     {
       manifest: '/work/conda.toml',
       name: 'demo',
+      lockfileStatus: 'up-to-date',
       environments: [
         {
           name: 'test',
@@ -343,6 +351,34 @@ test('parseWorkspaceSnapshot accepts provenance without structured selectors', (
   );
 
   assert.equal(snapshot.environments[0]?.resolutions[0]?.dependencies[0]?.location, undefined);
+});
+
+test('parseWorkspaceImagePreview keeps the generated recipe and exact file list', () => {
+  assert.deepEqual(
+    parseWorkspaceImagePreview(
+      JSON.stringify({
+        success: true,
+        recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+        files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+        destination: { load: true },
+      }),
+    ),
+    {
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+      files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+    },
+  );
+});
+
+test('parseWorkspaceImagePreview rejects malformed preview fields', () => {
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: [], files: ['conda.toml'] })),
+    /recipe must be a string/,
+  );
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: 'FROM base', files: [3] })),
+    /files\[0\] must be a string/,
+  );
 });
 
 test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {

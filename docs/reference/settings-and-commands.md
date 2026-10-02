@@ -75,6 +75,14 @@ Exports the selected Conda Code environment through conda-sboms after choosing
 a CycloneDX JSON destination. The save dialog proposes
 `<environment>.cdx.json`.
 
+### `Conda Code: Export Workspace Lockfile SBOM`
+
+Command ID: `conda-code.exportWorkspaceLockfileSbom`
+
+Exports a declared workspace environment directly from its existing lockfile.
+The command asks for the declared environment and platform, offers reproducible
+output without a timestamp, and then asks for a CycloneDX JSON destination.
+
 ### `Conda Code: Create Environment from File`
 
 Command ID: `conda-code.createEnvironmentFromFile`
@@ -102,3 +110,67 @@ workspace manifest, then runs the selected native VS Code task. A
 {octicon}`play` action appears in the editor title for `conda.toml`, `pixi.toml`,
 and `pyproject.toml`. Conda Code validates the active file before asking
 conda-workspaces for its tasks.
+
+### `Conda Code: Create Workspace Environment`
+
+Command ID: `conda-code.createWorkspaceEnvironment`
+
+Adds a named environment declaration to a selected existing workspace. The
+feature picker includes the default feature and every named feature reported by
+conda-workspaces. Clearing the default feature passes `--no-default-feature`.
+
+### `Conda Code: Import environment.yml into Workspace`
+
+Command ID: `conda-code.importWorkspaceEnvironment`
+
+Imports one `environment.yml` or `environment.yaml` as a new named environment
+in a selected existing workspace.
+
+### `Conda Code: Remove Workspace Environment Declaration`
+
+Command ID: `conda-code.removeWorkspaceEnvironment`
+
+Removes a selected environment declaration after a modal confirmation. The
+operation also removes its complete lock records and installed prefix. Deleting
+the environment from the Python Environments view only cleans the prefix and
+keeps the declaration.
+
+### `Conda Code: Show Workspace Lockfile Status`
+
+Command ID: `conda-code.showWorkspaceLockStatus`
+
+Shows whether the selected workspace's lockfile is current, stale, or missing,
+with the reason reported by conda-workspaces. This works even when no workspace
+environment is installed.
+
+### `Conda Code: Update Workspace Lockfile`
+
+Command ID: `conda-code.updateWorkspaceLockfile`
+
+Solves the declared workspace environments and writes the lockfile. This can
+also replace a malformed lockfile.
+
+### `Conda Code: Install Workspace Environment from Lockfile`
+
+Command ID: `conda-code.installLockedWorkspaceEnvironment`
+
+Installs a selected declaration with `conda workspace install --locked`. A
+missing or stale lockfile stops installation. The command does not fall back to
+solving or add Quick Create packages.
+
+### `Conda Code: Preview Workspace Image`
+
+Command ID: `conda-code.previewWorkspaceImage`
+
+Asks for an environment, a declared Linux platform, an image tag, and a default
+command. Opens the generated Containerfile and included file list as text
+documents without building an image or requiring Docker.
+
+### `Conda Code: Build Workspace Image`
+
+Command ID: `conda-code.buildWorkspaceImage`
+
+Builds the selected environment and Linux platform through a VS Code Task after
+conda-workspaces validates the build inputs. Choose between loading the image
+into Docker and exporting an OCI archive. The task terminal shows progress and
+allows cancellation.

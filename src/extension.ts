@@ -33,6 +33,18 @@ import {
   runWorkspaceTask,
 } from './conda/tasks';
 import { normalizeEnvironmentPath } from './conda/workspaceRouting';
+import {
+  createWorkspaceEnvironment,
+  importWorkspaceEnvironment,
+  removeWorkspaceEnvironment,
+} from './conda/workspaceActions';
+import { buildWorkspaceImage, previewWorkspaceImage } from './conda/workspaceImage';
+import {
+  installLockedWorkspaceEnvironment,
+  showWorkspaceLockStatus,
+  updateWorkspaceLockfile,
+} from './conda/workspaceLocks';
+import { exportWorkspaceLockfileSbom } from './conda/workspaceSbom';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -46,6 +58,7 @@ interface CondaCodeRuntime extends Disposable {
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
   readonly tasks: CondaWorkspaceTaskProvider;
+  readonly workspaces: CondaWorkspacesClient;
   readonly forceCondaInfoEnrichment: () => Promise<void>;
 }
 
@@ -274,6 +287,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       environments,
       packages,
       tasks: taskProvider,
+      workspaces,
       forceCondaInfoEnrichment,
       dispose: () => {
         disposed = true;
@@ -396,9 +410,129 @@ export async function activate(context: ExtensionContext): Promise<void> {
         scope: window.activeTextEditor?.document.uri,
       });
     }),
+    commands.registerCommand('conda-code.exportWorkspaceLockfileSbom', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return exportWorkspaceLockfileSbom({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.previewWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return previewWorkspaceImage({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.buildWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return buildWorkspaceImage({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
       runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
     ),
+    commands.registerCommand('conda-code.showWorkspaceLockStatus', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return showWorkspaceLockStatus({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.updateWorkspaceLockfile', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return updateWorkspaceLockfile({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.installLockedWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return installLockedWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.createWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return createWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.importWorkspaceEnvironment', (definition?: Uri) => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return importWorkspaceEnvironment(
+        {
+          api,
+          environments: current.environments,
+          log,
+          scope: window.activeTextEditor?.document.uri,
+          workspaces: current.workspaces,
+        },
+        definition,
+      );
+    }),
+    commands.registerCommand('conda-code.removeWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return removeWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.createEnvironmentFromFile', async (definition?: Uri) => {
       const source = definition ?? window.activeTextEditor?.document.uri;
       const current = runtime;

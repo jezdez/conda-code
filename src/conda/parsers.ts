@@ -27,7 +27,12 @@ export interface CondaPackageRecord {
 export interface WorkspaceInfo {
   readonly manifest: string;
   readonly name: string;
+  readonly features?: readonly string[];
+  readonly lockfileStatus?: WorkspaceLockfileStatus;
+  readonly lockfileReason?: string;
 }
+
+export type WorkspaceLockfileStatus = 'up-to-date' | 'out-of-date' | 'missing';
 
 export interface WorkspaceEnvironment {
   readonly name: string;
@@ -79,6 +84,11 @@ export interface WorkspaceSnapshotEnvironment {
 
 export interface WorkspaceSnapshot extends WorkspaceInfo {
   readonly environments: readonly WorkspaceSnapshotEnvironment[];
+}
+
+export interface WorkspaceImagePreview {
+  readonly recipe: string;
+  readonly files: readonly string[];
 }
 
 export interface WorkspaceQuickstartResult {
@@ -188,6 +198,21 @@ function optionalNullableString(record: JsonRecord, key: string, path: string): 
   return expectString(value, `${path}.${key}`);
 }
 
+function optionalLockfileStatus(
+  record: JsonRecord,
+  key: string,
+  path: string,
+): WorkspaceLockfileStatus | undefined {
+  const value = optionalNullableString(record, key, path);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value !== 'up-to-date' && value !== 'out-of-date' && value !== 'missing') {
+    throw new Error(`${path}.${key} must be up-to-date, out-of-date, or missing`);
+  }
+  return value;
+}
+
 function optionalStringArray(
   record: JsonRecord,
   key: string,
@@ -249,9 +274,15 @@ export function parseCondaMutationPrefix(text: string): string {
 
 export function parseWorkspaceInfo(text: string): WorkspaceInfo {
   const value = expectRecord(parseJson(text, 'conda workspace info'), 'conda workspace info');
+  const features = optionalStringArray(value, 'features', 'conda workspace info');
+  const lockfileStatus = optionalLockfileStatus(value, 'lockfile_status', 'conda workspace info');
+  const lockfileReason = optionalNullableString(value, 'lockfile_reason', 'conda workspace info');
   return {
     manifest: expectString(value.manifest, 'conda workspace info.manifest'),
     name: expectString(value.name, 'conda workspace info.name'),
+    ...(features === undefined ? {} : { features }),
+    ...(lockfileStatus === undefined ? {} : { lockfileStatus }),
+    ...(lockfileReason === undefined ? {} : { lockfileReason }),
   };
 }
 
@@ -338,9 +369,13 @@ export function parseWorkspaceSnapshot(text: string): WorkspaceSnapshot {
   const path = 'conda workspace info';
   const value = expectRecord(parseJson(text, path), path);
   const environmentDetails = expectArray(value.environment_details, `${path}.environment_details`);
+  const lockfileStatus = optionalLockfileStatus(value, 'lockfile_status', path);
+  const lockfileReason = optionalNullableString(value, 'lockfile_reason', path);
   return {
     manifest: expectString(value.manifest, `${path}.manifest`),
     name: expectString(value.name, `${path}.name`),
+    ...(lockfileStatus === undefined ? {} : { lockfileStatus }),
+    ...(lockfileReason === undefined ? {} : { lockfileReason }),
     environments: environmentDetails.map((item, environmentIndex) => {
       const environmentPath = `${path}.environment_details[${environmentIndex}]`;
       const environment = expectRecord(item, environmentPath);
@@ -381,6 +416,15 @@ export function parseWorkspaceSnapshot(text: string): WorkspaceSnapshot {
         packages,
       };
     }),
+  };
+}
+
+export function parseWorkspaceImagePreview(text: string): WorkspaceImagePreview {
+  const path = 'conda workspace image';
+  const value = expectRecord(parseJson(text, path), path);
+  return {
+    recipe: expectString(value.recipe, `${path}.recipe`),
+    files: expectStringArray(value.files, `${path}.files`),
   };
 }
 

@@ -203,7 +203,7 @@ test('global roots and custom environment directories are expanded one level', a
   assert.equal(byPrefix(discovered, path.join(customEnvs, 'custom')).kind, 'named');
 });
 
-test('primary external environment directories retain their removal boundary', async (t) => {
+test('primary environments in external directories preserve their ownerEnvsDir', async (t) => {
   const root = await canonicalCondaPath(
     await mkdtemp(path.join(tmpdir(), 'conda-code-external-owner-discovery-')),
   );

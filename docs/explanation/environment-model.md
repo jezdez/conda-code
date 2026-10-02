@@ -107,7 +107,6 @@ not publish the environment.
 
 ## Why both appear together
 
-The Python Environments view is most useful when a developer can select a
-Python environment without first knowing which `conda` command created it.
-Conda Code keeps that common selection surface while preserving the distinct
-change path behind each environment.
+The Python Environments view lets you select regular and workspace environments
+without knowing which `conda` command created them. Conda Code uses the selected
+environment's owner or workspace manifest for later changes.
