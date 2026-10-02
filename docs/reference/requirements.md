@@ -35,6 +35,10 @@ the Command Palette requires conda-workspaces 0.9 or newer. Older supported
 versions remain available for discovery, installation, tasks, and compatible
 package operations.
 
+Workspace lockfile actions and workspace images require conda-workspaces 0.10
+or newer. Image builds also require Docker with Buildx and a running daemon.
+Image previews do not require Docker.
+
 ## Workspace PyPI dependencies
 
 Workspace `[pypi-dependencies]` support requires conda 26.5 or newer, which

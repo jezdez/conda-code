@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Honor headless package requests without showing prompts or changing shared
+  workspace declarations that require confirmation
 - Create workspace environment declarations with selected features, import
   `environment.yml` declarations, and remove declarations after confirmation
   through command-palette actions backed by conda-workspaces 0.9 or newer

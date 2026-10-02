@@ -1,5 +1,6 @@
 import {
   DidChangePackagesEventArgs,
+  GetPackagesOptions,
   Package,
   PackageInfo,
   PackageManagementOptions,
@@ -33,10 +34,6 @@ import {
 
 export interface CondaPackageManagerOptions {
   readonly log?: LogOutputChannel;
-}
-
-interface GetPackagesOptions {
-  readonly skipCache?: boolean;
 }
 
 function normalizedPackageName(value: string): string {
@@ -86,6 +83,9 @@ export class CondaPackageManager implements PackageManager, Disposable {
     let install = options.install?.filter((spec) => spec.trim() !== '') ?? [];
     const current = this.requireOwnedEnvironment(environment);
     if (uninstall.length === 0 && install.length === 0) {
+      if (options.runHeadless === true) {
+        return;
+      }
       const spec = await window.showInputBox({
         title: `Manage a package in ${current.displayName}`,
         prompt: 'Enter one conda package specification to install or update',
@@ -132,7 +132,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
             throw new Error(`Workspace ownership changed for ${current.environmentPath.fsPath}`);
           }
           route = refreshedRoute;
-          await this.manageWorkspace(route, uninstall, install, options.upgrade === true);
+          await this.manageWorkspace(route, uninstall, install, options);
         }
 
         if (route === undefined) {
@@ -159,8 +159,8 @@ export class CondaPackageManager implements PackageManager, Disposable {
     );
   }
 
-  // Python Environments 1.36 renders this returned list, while its published
-  // 1.0 API types still declare Promise<void>. Keep both signatures until the
+  // Python Environments 1.36 renders this returned list, while its
+  // published API types still declare Promise<void>. Keep both signatures until the
   // API package catches up with the extension runtime.
   public refresh(environment: PythonEnvironment): Promise<Package[]>;
   public refresh(environment: PythonEnvironment): Promise<void>;
@@ -285,7 +285,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     route: CondaWorkspaceRoute,
     uninstall: readonly string[],
     install: readonly string[],
-    upgrade: boolean,
+    options: PackageManagementOptions,
   ): Promise<void> {
     const removals = this.workspaceMutationGroups(route, uninstall, false);
     const updates: string[] = [];
@@ -299,7 +299,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
         updates.push(spec);
         continue;
       }
-      if (upgrade || this.workspacePackageExists(route, spec)) {
+      if (options.upgrade === true || this.workspacePackageExists(route, spec)) {
         throw new Error(`Only direct workspace dependencies can be updated: ${spec}`);
       }
       additions.push(spec);
@@ -308,7 +308,13 @@ export class CondaPackageManager implements PackageManager, Disposable {
     const updateGroups = this.workspaceMutationGroups(route, updates, true);
     const action =
       removals.length === 0 ? 'Update' : updateGroups.length === 0 ? 'Remove' : 'Change';
-    if (!(await this.confirmSharedMutation([...removals, ...updateGroups], action))) {
+    if (
+      !(await this.confirmSharedMutation(
+        [...removals, ...updateGroups],
+        action,
+        options.runHeadless === true,
+      ))
+    ) {
       return;
     }
 
@@ -373,7 +379,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
       if (dependency.location === undefined) {
         throw new Error(
           `Workspace dependency changes require a structured declaration location. ` +
-            `Edit ${route.manifestUri.fsPath} directly, then refresh Conda Code.`,
+            `Edit ${route.manifestUri.fsPath} directly, apply the workspace change, then refresh Conda Code.`,
         );
       }
 
@@ -396,9 +402,13 @@ export class CondaPackageManager implements PackageManager, Disposable {
   private async confirmSharedMutation(
     groups: readonly WorkspaceMutationGroup[],
     action: 'Change' | 'Remove' | 'Update',
+    runHeadless: boolean,
   ): Promise<boolean> {
     if (groups.every(({ location }) => location.environment !== undefined)) {
       return true;
+    }
+    if (runHeadless) {
+      return false;
     }
     const choice = await window.showWarningMessage(
       `${action} shared workspace dependencies? This may change other environments.`,

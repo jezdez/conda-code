@@ -86,4 +86,5 @@ you choose one.
 An existing discovered workspace takes precedence in this shared creation flow.
 The interactive menu also offers a workspace, a project `.conda` prefix, and a
 regular named environment. Packages selected during interactive creation are
-installed after a file-based environment is created.
+installed after an `environment.yml` or `environment.yaml` environment is
+created. Exact inputs refuse additional creation packages.

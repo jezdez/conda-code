@@ -170,7 +170,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@vscode/python-environments": "1.0.0"
+    "@vscode/python-environments": "1.4.0"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

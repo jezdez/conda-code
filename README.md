@@ -75,9 +75,9 @@ check regular environment and workspace discovery.
 - **conda-workspaces:** Discover, install, activate, and manage workspace
   environments, create, import, and remove environment declarations, then run
   declared tasks from the manifest editor through native VS Code Tasks. Shell
-  activation targets the exact installed workspace prefix. Conda Code detects
-  richer workspace snapshots and declaration locations when the installed
-  conda-workspaces provides them.
+  activation targets the exact installed workspace prefix. Conda Code uses
+  complete workspace snapshots and dependency declaration locations when
+  conda-workspaces reports them.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix. Run **Conda
   Code: Export Environment SBOM** for an installed prefix, or **Conda Code:

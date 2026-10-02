@@ -55,7 +55,7 @@ function condaInfo(): object {
   };
 }
 
-test('regular conda reads use the configured executable and JSON contracts', async () => {
+test('regular conda reads use the configured executable and parse info and package JSON', async () => {
   const runner = new RecordingRunner((_executable, args) => {
     if (args[0] === 'info') {
       return success(condaInfo());

@@ -3345,6 +3345,79 @@ test('workspace package changes use exact structured locations', async (t) => {
   );
 });
 
+test('headless workspace package operations skip input and preserve explicit environment changes', async (t) => {
+  const { vscode, packageManager } = modules();
+  const harness = workspacePackageHarness(vscode, packageManager, {
+    directDependencies: [
+      { name: 'numpy', pypi: false, location: { environment: 'default' } },
+      { name: 'build', pypi: true, location: { environment: 'default' } },
+    ],
+  });
+  t.after(() => harness.packages.dispose());
+  vscode.__state.inputs.length = 0;
+  vscode.__state.inputResponse = 'unexpected';
+  t.after(() => {
+    vscode.__state.inputResponse = undefined;
+  });
+
+  for (const options of [{ install: [] }, { uninstall: [] }, { install: ['  '] }]) {
+    await harness.packages.manage(harness.environment, { ...options, runHeadless: true });
+  }
+  assert.equal(vscode.__state.inputs.length, 0);
+  assert.deepEqual(harness.changes, []);
+  assert.equal(harness.refreshCalls, 0);
+
+  await harness.packages.manage(harness.environment, {
+    install: ['numpy>=2', 'pytest'],
+    uninstall: ['build'],
+    runHeadless: true,
+  });
+
+  assert.equal(vscode.__state.inputs.length, 0);
+  assert.deepEqual(vscode.__state.warnings, []);
+  assert.deepEqual(harness.changes, [
+    {
+      operation: 'remove',
+      specs: ['build'],
+      options: { environment: 'default', pypi: true },
+    },
+    {
+      operation: 'update',
+      specs: ['numpy>=2'],
+      options: { environment: 'default' },
+    },
+    {
+      operation: 'add',
+      specs: ['pytest'],
+      options: { environment: 'default' },
+    },
+  ]);
+});
+
+test('headless workspace changes requiring shared declaration confirmation do not mutate', async (t) => {
+  const { vscode, packageManager } = modules();
+  for (const location of [{}, { feature: 'dev', platform: 'linux-64' }]) {
+    const harness = workspacePackageHarness(vscode, packageManager, {
+      directDependencies: [
+        { name: 'numpy', pypi: false, location },
+        { name: 'build', pypi: true, location: { environment: 'default' } },
+      ],
+    });
+    t.after(() => harness.packages.dispose());
+    vscode.__state.inputs.length = 0;
+
+    for (const options of [
+      { uninstall: ['numpy'], install: ['pytest'] },
+      { uninstall: ['build'], install: ['numpy>=2', 'pytest'] },
+    ]) {
+      await harness.packages.manage(harness.environment, { ...options, runHeadless: true });
+      assert.deepEqual(harness.changes, []);
+      assert.deepEqual(vscode.__state.warnings, []);
+      assert.equal(vscode.__state.inputs.length, 0);
+    }
+  }
+});
+
 test('workspace mutations reject dependencies without a safe declaration target', async (t) => {
   const { vscode, packageManager } = modules();
   const harness = workspacePackageHarness(vscode, packageManager, {
@@ -3644,9 +3717,16 @@ test('regular package operations use the environment owner', async (t) => {
   );
   t.after(() => packages.dispose());
 
+  vscode.__state.inputResponse = 'unexpected';
+  await packages.manage(environment, { install: [], uninstall: [], runHeadless: true });
+  assert.equal(vscode.__state.inputs.length, 0);
+  assert.deepEqual(operations, []);
+  vscode.__state.inputResponse = undefined;
+
   await packages.manage(environment, {
     install: ['ruff'],
     uninstall: ['black'],
+    runHeadless: true,
   });
   assert.equal(vscode.__state.inputs.length, 0);
 
