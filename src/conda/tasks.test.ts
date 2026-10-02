@@ -251,6 +251,78 @@ test('provider discovers native tasks only for confirmed workspace manifests', a
   });
 });
 
+test('workspace image task definitions distinguish build inputs within one folder', async (t) => {
+  const { vscode, tasks } = modules();
+  const folder = { uri: vscode.Uri.file('/work'), name: 'work', index: 0 };
+  vscode.__state.folders = [folder];
+  const manifest = vscode.Uri.file('/work/project/conda.toml');
+  const client = { executable: '_conda' } as CondaWorkspacesClient;
+  const options = {
+    environment: 'runtime',
+    platform: 'linux-arm-two',
+    tag: 'example:latest',
+    command: ['python', 'app.py'],
+    load: true,
+  } as const;
+  const original = tasks.createWorkspaceImageTask(client, manifest, options);
+  const output = path.resolve('/work/example.oci.tar');
+  const variants = {
+    manifest: tasks.createWorkspaceImageTask(
+      client,
+      vscode.Uri.file('/work/other/conda.toml'),
+      options,
+    ),
+    executable: tasks.createWorkspaceImageTask(
+      { executable: 'conda' } as CondaWorkspacesClient,
+      manifest,
+      options,
+    ),
+    destination: tasks.createWorkspaceImageTask(client, manifest, {
+      ...options,
+      load: false,
+      output,
+    }),
+    'command arguments': tasks.createWorkspaceImageTask(client, manifest, {
+      ...options,
+      command: ['python', 'other.py'],
+    }),
+    'command executable': tasks.createWorkspaceImageTask(client, manifest, {
+      ...options,
+      command: ['pypy', 'app.py'],
+    }),
+  };
+
+  for (const [name, variant] of Object.entries(variants)) {
+    await t.test(name, () => {
+      assert.equal(variant.scope, folder);
+      assert.notDeepEqual(variant.definition, original.definition);
+    });
+  }
+  const outputTask = variants.destination;
+  const otherOutputTask = tasks.createWorkspaceImageTask(client, manifest, {
+    ...options,
+    load: false,
+    output: path.resolve('/work/other.oci.tar'),
+  });
+  await t.test('output path', () => {
+    assert.notDeepEqual(otherOutputTask.definition, outputTask.definition);
+  });
+  assert.deepEqual(
+    tasks.createWorkspaceImageTask(client, manifest, { ...options }).definition,
+    original.definition,
+  );
+  assert.deepEqual(
+    tasks.createWorkspaceImageTask(client, manifest, {
+      environment: options.environment,
+      platform: options.platform,
+      tag: options.tag,
+      command: [...options.command],
+      output,
+    }).definition,
+    outputTask.definition,
+  );
+});
+
 test('workspace image tasks use native process execution with exact command arguments', () => {
   const { vscode, tasks } = modules();
   const root = path.resolve('/work/project');

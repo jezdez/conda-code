@@ -43,9 +43,17 @@ export function createWorkspaceImageTask(
   options: WorkspaceImageTaskOptions,
 ): Task {
   const folder = workspace.getWorkspaceFolder(manifest);
+  const args = [
+    'workspace',
+    '--file',
+    manifest.fsPath,
+    ...workspaceImageArguments(options.environment, options.platform, options),
+  ];
   const task = new Task(
     {
       type: 'conda-workspace-image',
+      executable: workspaces.executable,
+      args,
       environment: options.environment,
       platform: options.platform,
       tag: options.tag,
@@ -53,16 +61,7 @@ export function createWorkspaceImageTask(
     folder ?? TaskScope.Workspace,
     `Build ${options.tag}`,
     TASK_SOURCE,
-    new ProcessExecution(
-      workspaces.executable,
-      [
-        'workspace',
-        '--file',
-        manifest.fsPath,
-        ...workspaceImageArguments(options.environment, options.platform, options),
-      ],
-      { cwd: path.dirname(manifest.fsPath) },
-    ),
+    new ProcessExecution(workspaces.executable, args, { cwd: path.dirname(manifest.fsPath) }),
     [],
   );
   task.detail = `Build ${options.environment} for ${options.platform}`;
