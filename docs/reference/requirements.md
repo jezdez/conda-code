@@ -36,8 +36,13 @@ versions remain available for discovery, installation, tasks, and compatible
 package operations.
 
 Workspace lockfile actions and workspace images require conda-workspaces 0.10
-or newer. Image builds also require Docker with Buildx and a running daemon.
-Image previews do not require Docker.
+or newer. For workspaces that target multiple platforms, use
+[conda-workspaces 0.11.1](https://github.com/conda-incubator/conda-workspaces/releases/tag/0.11.1)
+or newer. This release fixes lock regeneration after installation, which could
+write host-platform packages into another platform's lock records.
+
+Image builds also require Docker with Buildx and a running daemon. Image
+previews do not require Docker.
 
 ## Workspace PyPI dependencies
 

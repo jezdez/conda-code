@@ -115,7 +115,9 @@ available even when no workspace environment is installed.
 
 Run **Conda Code: Update Workspace Lockfile** to solve every declared
 environment and write the workspace lockfile. These lock actions require
-conda-workspaces 0.10 or newer.
+conda-workspaces 0.10 or newer. Use 0.11.1 or newer when locking multiple
+platforms to avoid incorrect package records after an environment is installed.
+See the [version requirements](../reference/requirements.md).
 
 ## Export an SBOM from the lockfile
 
