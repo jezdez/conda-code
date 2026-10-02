@@ -8,7 +8,9 @@ export function isCondaWorkspaceManifest(filePath: string, contents?: string): b
   if (name !== 'pyproject.toml' || contents === undefined) {
     return false;
   }
-  return /^\s*\[\s*tool\s*\.\s*(?:conda|pixi)\s*\.\s*workspace(?:\s*\.|\s*\])/m.test(contents);
+  return /^\s*\[\s*(['"]?)tool\1\s*\.\s*(['"]?)(?:conda|pixi)\2\s*\.\s*(['"]?)workspace\3(?:\s*\.|\s*\])/m.test(
+    contents,
+  );
 }
 
 export function isPixiProjectManifest(filePath: string, contents?: string): boolean {

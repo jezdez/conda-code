@@ -63,3 +63,30 @@ test('workspace manifest recognition excludes unrelated pyprojects', () => {
     true,
   );
 });
+
+test('workspace manifest recognition accepts quoted TOML table components', () => {
+  for (const header of [
+    '["tool"."conda"."workspace"]',
+    "['tool'.'pixi'.'workspace']",
+    '[ tool . "conda" . \'workspace\' ]',
+    '["tool".pixi.workspace.dependencies]',
+  ]) {
+    assert.equal(
+      isCondaWorkspaceManifest('/work/pyproject.toml', `${header}\nname =\n`),
+      true,
+      header,
+    );
+  }
+  for (const header of [
+    '["tool.conda.workspace"]',
+    '["tool"."conda"."other"]',
+    '["tool"."other"."workspace"]',
+    '["tool\'.conda.workspace]',
+  ]) {
+    assert.equal(
+      isCondaWorkspaceManifest('/work/pyproject.toml', `${header}\nname =\n`),
+      false,
+      header,
+    );
+  }
+});

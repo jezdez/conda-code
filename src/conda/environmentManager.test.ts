@@ -1596,8 +1596,28 @@ test('new invalid workspace pyprojects publish backend diagnostics without prior
       messages: ['Expected a value'],
     },
     {
+      name: 'quoted-conda',
+      contents: '["tool"."conda"."workspace"]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'quoted-pixi',
+      contents: "['tool'.'pixi'.'workspace']\nname =\n",
+      messages: ['Expected a value'],
+    },
+    {
+      name: 'mixed-quotes',
+      contents: '[ tool . "conda" . \'workspace\' ]\nname =\n',
+      messages: ['Expected a value'],
+    },
+    {
       name: 'ordinary',
       contents: '[project]\nname =\n',
+      messages: [],
+    },
+    {
+      name: 'unrelated-quoted-table',
+      contents: '["tool.conda.workspace"]\nname =\n',
       messages: [],
     },
   ].map((fixture) => {
