@@ -388,13 +388,22 @@ test('workspace SBOM export identifies an unsupported conda-workspaces backend',
   assert.match(vscode.__state.errors[0] ?? '', /conda-workspaces 0\.9 or newer/);
 });
 
-test('workspace SBOM export rejects a changed manifest or selected platform', async () => {
+test('workspace SBOM export rejects a changed manifest, selected platform, or subdir', async () => {
   const { vscode, workspaceSbom } = modules();
   const original = snapshot();
   const environment = original.environments[0]!;
   for (const changed of [
     snapshot(path.resolve('/work/other/conda.toml')),
     snapshot(undefined, [{ ...environment, resolutions: [environment.resolutions[0]!] }]),
+    snapshot(undefined, [
+      {
+        ...environment,
+        resolutions: [
+          environment.resolutions[0]!,
+          { ...environment.resolutions[1]!, subdir: 'linux-aarch64' },
+        ],
+      },
+    ]),
   ]) {
     reset(vscode);
     const calls: ExportCall[] = [];

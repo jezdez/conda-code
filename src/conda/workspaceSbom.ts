@@ -123,13 +123,19 @@ async function selectReproducible(): Promise<boolean | undefined> {
 function findCurrentSelection(
   snapshot: WorkspaceSnapshot,
   environmentName: string,
-  platform: string,
+  selectedResolution: WorkspaceSnapshotResolution,
 ): void {
   const environment = snapshot.environments.find(({ name }) => name === environmentName);
   if (environment === undefined) {
     throw new Error('The workspace environment declaration changed before export');
   }
-  if (!environment.resolutions.some((resolution) => resolution.platform === platform)) {
+  if (
+    !environment.resolutions.some(
+      (resolution) =>
+        resolution.platform === selectedResolution.platform &&
+        resolution.subdir === selectedResolution.subdir,
+    )
+  ) {
     throw new Error('The workspace platform declaration changed before export');
   }
 }
@@ -180,7 +186,7 @@ export async function exportWorkspaceLockfileSbom(options: WorkspaceActionOption
         ) {
           throw new Error('Workspace ownership changed while the action was being prepared');
         }
-        findCurrentSelection(current, environment.name, resolution.platform);
+        findCurrentSelection(current, environment.name, resolution);
         await options.workspaces.exportWorkspaceSbom(
           context.manifestUri.fsPath,
           environment.name,
