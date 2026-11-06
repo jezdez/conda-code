@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+- Stop multi-command package mutations before the next write when provider
+  ownership, routing, or the owning conda executable changes
+- Extend the isolated VS Code smoke test to verify clean-shell activation,
+  debug interpreter selection, and external package metadata watcher events
+- Validate workspace mutation targets before changing packages, including
+  confirmation for legacy shared additions
+- Reconcile partial package failures and report removals to the package view
+- Reject stale package reads after ownership changes, invalidation, or disposal
+- Separate package-provider tests, reuse search JSON validation, and report
+  unit-test coverage in the platform CI matrix
+- Align the Python Environments API dependency and lockfile on version 1.4.0
+- Expose conda metadata watch targets and workspace direct dependency names
+- Add owner-aware regular package version lookup, conda install specifications,
+  and package-manager tool version reporting
+- Honor headless package operations without prompts or progress notifications,
+  rejecting changes that require shared workspace dependency confirmation
+- Use the complete conda-workspaces snapshot when available, reducing workspace
+  environment discovery to one conda process and reusing its package records
+- Route new dependencies to the selected workspace environment when supported
+- Enable direct dependency removal and conda dependency updates when
+  conda-workspaces reports structured declaration locations, with confirmation
+  before changing shared declarations
+- Keep conda-workspaces 0.7 compatibility when the newer snapshot and
+  declaration metadata are unavailable
+- Refuse ambiguous zero-feature package additions with 0.7 metadata instead of
+  changing a declaration an isolated environment may not inherit
+- Show VS Code progress notifications for package changes
+
 ## 0.5.0
 
 - Create and select regular named environments directly from supported project

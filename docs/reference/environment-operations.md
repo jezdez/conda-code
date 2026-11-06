@@ -92,10 +92,12 @@ New regular environments created without a project input and new workspaces
 include Python unless the requested package list already contains a Python
 specification.
 
-For an existing workspace environment backed by zero or one feature, Quick
-Create adds Python when its declaration does not contain it. Additional creation
-packages use the same feature rule. An environment composed from multiple
-features must be edited directly.
+When conda-workspaces provides a complete snapshot, Quick Create adds Python and
+other requested packages directly to the selected environment. With the
+0.7-compatible metadata, Conda Code can add them only when the environment is
+backed by exactly one feature. Metadata from 0.7 cannot distinguish a default
+environment from an isolated environment when its feature list is empty, so
+zero-feature and composed environments must be edited directly.
 
 CEP 24 inputs supply their own package set and may receive additional creation
 packages afterward. Exact inputs refuse additional packages and disable

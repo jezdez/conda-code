@@ -23,6 +23,13 @@ commands.
 | Workspace manifest | Validated by `conda workspace info --json`           |
 | Python project     | Manifest directory registered in Python Environments |
 
+Conda Code detects optional conda-workspaces capabilities from command output.
+A complete workspace snapshot makes discovery faster and allows dependencies to
+be added directly to a selected environment. Structured dependency locations
+also allow safe direct-dependency removal and conda dependency updates. The
+0.7-compatible discovery and package-add path remains available when those
+fields are absent.
+
 ## Workspace PyPI dependencies
 
 Workspace `[pypi-dependencies]` support requires conda 26.5 or newer, which

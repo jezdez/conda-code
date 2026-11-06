@@ -63,9 +63,11 @@ reporting workspace, then refresh.
 
 ## Package changes are refused
 
-Workspace package removal and upgrade require direct manifest edits. Dependency
-addition is also refused for an environment composed from multiple features.
-See [](use-workspaces.md).
+Conda Code enables workspace operations only when conda-workspaces reports the
+metadata needed to preserve the manifest. A complete snapshot is needed to add
+to a composed environment. Structured declaration locations are needed to
+remove a direct dependency or update a direct conda dependency. Transitive
+dependencies cannot be changed directly. See [](use-workspaces.md).
 
 ## Quick Create reports multiple project inputs
 

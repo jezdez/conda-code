@@ -101,9 +101,9 @@ A workspace prefix is an installed result of a manifest declaration. Changing
 only the prefix would leave the declaration and lock data out of sync.
 
 Conda Code therefore associates the installed prefix with the one manifest that
-reports it. Package additions and environment cleanup use that association.
-If several manifests report the same prefix, Conda Code cannot choose one and
-does not publish the environment.
+reports it. Package changes and environment cleanup use that association. If
+several manifests report the same prefix, Conda Code cannot choose one and does
+not publish the environment.
 
 ## Why both appear together
 

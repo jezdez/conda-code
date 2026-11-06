@@ -30,7 +30,9 @@ omitting raw pip-only distributions.
 
 For workspace `[pypi-dependencies]`, conda-workspaces and conda-pypi solve and
 record those dependencies. Package changes started in Conda Code apply to the
-workspace's conda dependencies.
+workspace manifest. New dependencies are added as conda dependencies. Existing
+direct PyPI dependencies can be removed when conda-workspaces reports their
+structured declaration locations.
 
 ## conda-lockfiles
 

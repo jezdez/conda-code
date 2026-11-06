@@ -74,7 +74,8 @@ check regular environment and workspace discovery.
   files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
 - **conda workspaces:** Discover, install, and manage conda-workspaces
   environments, then run declared tasks from the manifest editor through native
-  VS Code Tasks.
+  VS Code Tasks. Conda Code detects richer workspace snapshots and declaration
+  metadata when the installed conda-workspaces provides them.
 - **Owner-aware operations:** Route activation, package changes, and safe
   deletion through the conda installation that owns each prefix.
 - **Ecosystem compatibility:** Include
@@ -103,6 +104,10 @@ Optional integrations:
 - conda-workspaces 0.7 or newer for workspace environments and tasks
 - conda-lockfiles 0.2 or newer for conda lockfile creation inputs
 - conda 26.5 or newer for workspace PyPI dependencies
+
+Newer conda-workspaces capabilities are detected at runtime. The 0.7 integration
+remains available when complete snapshots or structured dependency locations
+are not reported.
 
 Set `conda-code.condaExecutable` when the primary conda is not available through
 `CONDA_EXE`, the Python extension's `python.condaPath` setting, or `PATH`.
@@ -135,6 +140,26 @@ npm run docs
 
 Run the `Extension` launch configuration in an Extension Development Host.
 Build an installable package with `npm run vsix`.
+
+`npm run test:coverage` reports coverage for loaded production modules, excluding
+test helpers. Modules not loaded by unit tests, including extension activation,
+are not included in the percentages.
+
+The opt-in `dist/integration/smoke.js` test runs inside VS Code, not Node's test
+runner. After compiling, set `CONDA_CODE_TEST_PREFIX` to an existing runnable conda
+environment and launch VS Code with `--extensionDevelopmentPath` pointing here
+and `--extensionTestsPath` pointing to that compiled file. Use a disposable
+workspace, a separate `--user-data-dir`, and a separate `--extensions-dir` with
+the Python, Python Environments, and Python Debugger extensions installed. Set
+`python-envs.terminal.autoActivationType` to `command`, enable
+`python-envs.packageWatchers`, and set `conda-code.condaExecutable` to a working
+conda installation in that isolated profile.
+
+The test verifies activation, discovery, selection, package listing, background
+execution, terminal activation, and debug interpreter selection. A metadata-only
+prefix inside its scratch directory tests external package-change events without
+installing or removing packages in the supplied environment. The test restores
+the previous selection and removes its scratch files.
 
 ## License
 
