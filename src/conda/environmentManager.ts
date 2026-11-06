@@ -65,7 +65,7 @@ import {
   CondaWorkspacesClient,
   FailedWorkspaceEnvironmentDiscovery,
   InstalledWorkspaceEnvironment,
-  WorkspaceEnvironment,
+  WorkspaceEnvironmentDeclaration,
   WorkspaceInfo,
 } from './workspaces';
 
@@ -88,9 +88,10 @@ interface DiscoveredWorkspace {
   readonly projectUri: Uri;
   readonly manifestUri: Uri;
   readonly info: WorkspaceInfo;
+  readonly snapshotAvailable: boolean;
+  readonly declaredEnvironments: readonly WorkspaceEnvironmentDeclaration[];
   readonly environments: readonly PythonEnvironment[];
-  readonly featuresByPrefix: ReadonlyMap<string, readonly string[]>;
-  readonly directCondaDependenciesByPrefix: ReadonlyMap<string, readonly string[]>;
+  readonly detailsByPrefix: ReadonlyMap<string, InstalledWorkspaceEnvironment>;
   readonly environmentFailures: readonly FailedWorkspaceEnvironmentDiscovery[];
 }
 
@@ -1302,17 +1303,15 @@ export class CondaEnvironmentManager
           );
           continue;
         }
-        const info = await this.workspaces.getWorkspaceInfo(candidate.fsPath, { signal });
+        const discovery = await this.workspaces.discoverWorkspace(candidate.fsPath, condaPlatform, {
+          signal,
+        });
+        const info = discovery.info;
         const manifestUri = Uri.file(info.manifest);
         const projectUri = this.exactPythonProject(Uri.file(path.dirname(info.manifest)));
         if (projectUri === undefined) {
           continue;
         }
-        const discovery = await this.workspaces.discoverInstalledEnvironments(
-          info.manifest,
-          condaPlatform,
-          { signal },
-        );
         const converted = discovery.environments.map((environment) => ({
           source: environment,
           item: this.toWorkspacePythonEnvironment(environment, projectUri, manifestUri, info),
@@ -1336,23 +1335,16 @@ export class CondaEnvironmentManager
           retained,
           converted.map(({ item }) => item),
         );
-        const featuresByPrefix = new Map<string, readonly string[]>();
-        const directCondaDependenciesByPrefix = new Map<string, readonly string[]>();
+        const detailsByPrefix = new Map<string, InstalledWorkspaceEnvironment>();
         for (const environment of environments) {
           const prefixKey = canonicalEnvironmentPath(environment.environmentPath.fsPath);
           const current = converted.find(
             ({ item }) => canonicalEnvironmentPath(item.environmentPath.fsPath) === prefixKey,
           )?.source;
-          featuresByPrefix.set(
-            prefixKey,
-            current?.features ?? previous?.featuresByPrefix.get(prefixKey) ?? [],
-          );
-          directCondaDependenciesByPrefix.set(
-            prefixKey,
-            current === undefined
-              ? (previous?.directCondaDependenciesByPrefix.get(prefixKey) ?? [])
-              : Object.keys(current.condaDependencies),
-          );
+          const details = current ?? previous?.detailsByPrefix.get(prefixKey);
+          if (details !== undefined) {
+            detailsByPrefix.set(prefixKey, details);
+          }
         }
         for (const failure of discovery.failures) {
           this.log?.debug(
@@ -1365,9 +1357,10 @@ export class CondaEnvironmentManager
           projectUri,
           manifestUri,
           info,
+          snapshotAvailable: discovery.snapshotAvailable,
+          declaredEnvironments: discovery.declaredEnvironments,
           environments,
-          featuresByPrefix,
-          directCondaDependenciesByPrefix,
+          detailsByPrefix,
           environmentFailures: discovery.failures,
         });
       } catch (error) {
@@ -1463,7 +1456,7 @@ export class CondaEnvironmentManager
     entry: DiscoveredWorkspace,
     options: CreateEnvironmentOptions,
   ): Promise<PythonEnvironment | undefined> {
-    const declared = await this.workspaces.listEnvironments(entry.manifestUri.fsPath);
+    const declared = entry.declaredEnvironments;
     const candidates = declared.filter((environment) => !environment.installed);
     const selected = await this.selectDeclaredEnvironment(candidates, options.quickCreate);
     if (selected === undefined) {
@@ -1479,7 +1472,9 @@ export class CondaEnvironmentManager
         : additionalPackages;
     if (requestedPackages.length > 0) {
       await this.workspaces.addDependencies(entry.manifestUri.fsPath, requestedPackages, {
-        feature: dependencyFeature(selected.name, selected.features),
+        ...(entry.snapshotAvailable
+          ? { environment: selected.name }
+          : { feature: dependencyFeature(selected.name, selected.features) }),
         noInstall: true,
       });
     }
@@ -1490,22 +1485,24 @@ export class CondaEnvironmentManager
 
   private async quickCreateWorkspacePackages(
     entry: DiscoveredWorkspace,
-    environment: WorkspaceEnvironment,
+    environment: WorkspaceEnvironmentDeclaration,
     additionalPackages: readonly string[],
   ): Promise<readonly string[]> {
-    const info = await this.workspaces.getEnvironmentInfo(
-      entry.manifestUri.fsPath,
-      environment.name,
-    );
-    return containsPythonSpec(Object.keys(info.condaDependencies))
+    const condaDependencies =
+      environment.condaDependencies ??
+      Object.keys(
+        (await this.workspaces.getEnvironmentInfo(entry.manifestUri.fsPath, environment.name))
+          .condaDependencies,
+      );
+    return containsPythonSpec(condaDependencies)
       ? additionalPackages
       : environmentSpecs({ quickCreate: true, additionalPackages: [...additionalPackages] });
   }
 
   private async selectDeclaredEnvironment(
-    candidates: readonly WorkspaceEnvironment[],
+    candidates: readonly WorkspaceEnvironmentDeclaration[],
     quickCreate: boolean | undefined,
-  ): Promise<WorkspaceEnvironment | undefined> {
+  ): Promise<WorkspaceEnvironmentDeclaration | undefined> {
     if (candidates.length === 0) {
       return undefined;
     }
@@ -1902,12 +1899,22 @@ export class CondaEnvironmentManager
     }
     const prefix = environment.environmentPath.fsPath;
     const prefixKey = canonicalEnvironmentPath(prefix);
+    const details = entry.detailsByPrefix.get(prefixKey);
+    const directDependencies = details?.directDependencies ?? [];
     return {
       projectUri: entry.projectUri,
       manifestUri: entry.manifestUri,
       environmentName: environment.name,
-      features: entry.featuresByPrefix.get(prefixKey) ?? [],
-      directCondaDependencies: entry.directCondaDependenciesByPrefix.get(prefixKey) ?? [],
+      features: details?.features ?? [],
+      directDependencies: entry.snapshotAvailable
+        ? directDependencies
+        : directDependencies.map(({ name, pypi, table }) => ({
+            name,
+            pypi,
+            ...(table === undefined ? {} : { table }),
+          })),
+      packages: details?.packages ?? [],
+      snapshotAvailable: entry.snapshotAvailable,
       prefix,
       pythonPath,
     };

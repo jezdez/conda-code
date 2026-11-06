@@ -5,11 +5,13 @@ import {
   parseCondaInfo,
   parseCondaMutationPrefix,
   parseCondaPackages,
+  parseCondaPackageVersions,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
+  parseWorkspaceSnapshot,
   parseWorkspaceTasks,
 } from './parsers';
 
@@ -125,6 +127,46 @@ test('parseCondaPackages keeps package build and channel details', () => {
   );
 });
 
+test('parseCondaPackageVersions preserves search order and duplicate builds', () => {
+  assert.deepEqual(
+    parseCondaPackageVersions(
+      JSON.stringify({
+        numpy: [{ version: '2.0', build: 'py313_0' }, { version: '1.26' }, { version: '2.0' }],
+        python: [{ version: '3.13' }],
+      }),
+      'numpy',
+    ),
+    ['2.0', '1.26', '2.0'],
+  );
+});
+
+test('parseCondaPackageVersions returns no versions for empty or absent package results', () => {
+  assert.deepEqual(parseCondaPackageVersions('{"numpy":[]}', 'numpy'), []);
+  assert.deepEqual(parseCondaPackageVersions('{"python":[{"version":"3.13"}]}', 'numpy'), []);
+  assert.deepEqual(parseCondaPackageVersions('{}', 'constructor'), []);
+});
+
+test('parseCondaPackageVersions rejects malformed output with package search context', () => {
+  const malformed = [
+    ['not JSON', 'conda package search did not return valid JSON'],
+    ['null', 'conda package search must be an object'],
+    ['[]', 'conda package search must be an object'],
+    ['42', 'conda package search must be an object'],
+    ['{"numpy":{}}', 'conda package search.numpy must be an array'],
+    ['{"numpy":null}', 'conda package search.numpy must be an array'],
+    ['{"numpy":[null]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[[]]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[42]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[{}]}', 'conda package search.numpy[0].version must be a string'],
+    ['{"numpy":[{"version":2}]}', 'conda package search.numpy[0].version must be a string'],
+    ['{"numpy":[{"version":""}]}', 'conda package search.numpy[0].version must not be empty'],
+  ] as const;
+
+  for (const [text, message] of malformed) {
+    assert.throws(() => parseCondaPackageVersions(text, 'numpy'), { message });
+  }
+});
+
 test('parseCondaMutationPrefix accepts current and legacy conda result shapes', () => {
   assert.equal(parseCondaMutationPrefix(JSON.stringify({ prefix: '/envs/demo' })), '/envs/demo');
   assert.equal(
@@ -200,6 +242,124 @@ test('parseWorkspacePackages parses package records', () => {
       { name: 'python', version: '3.12.12', build: 'h123_0' },
     ],
   );
+});
+
+test('parseWorkspaceSnapshot keeps packages and structured dependency provenance', () => {
+  assert.deepEqual(
+    parseWorkspaceSnapshot(
+      JSON.stringify({
+        manifest: '/work/conda.toml',
+        name: 'demo',
+        environment_details: [
+          {
+            name: 'test',
+            features: ['test'],
+            prefix: '/work/.conda/envs/test',
+            installed: true,
+            resolutions: [
+              {
+                platform: 'linux-64',
+                subdir: 'linux-64',
+                conda_dependencies: {
+                  python: {
+                    spec: 'python >=3.12',
+                    provenance: {
+                      table: '[feature.test.dependencies]',
+                      location: {
+                        environment: null,
+                        feature: 'test',
+                        platform: null,
+                      },
+                    },
+                  },
+                },
+                pypi_dependencies: {
+                  black: {
+                    spec: 'black>=25',
+                    provenance: {
+                      table: '[environments.test.pypi-dependencies]',
+                      location: {
+                        environment: 'test',
+                        feature: null,
+                        platform: null,
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+            packages: [{ name: 'python', version: '3.13.5', build: 'h1_0' }],
+          },
+        ],
+      }),
+    ),
+    {
+      manifest: '/work/conda.toml',
+      name: 'demo',
+      environments: [
+        {
+          name: 'test',
+          features: ['test'],
+          prefix: '/work/.conda/envs/test',
+          installed: true,
+          resolutions: [
+            {
+              platform: 'linux-64',
+              subdir: 'linux-64',
+              dependencies: [
+                {
+                  name: 'python',
+                  pypi: false,
+                  table: '[feature.test.dependencies]',
+                  location: { feature: 'test' },
+                },
+                {
+                  name: 'black',
+                  pypi: true,
+                  table: '[environments.test.pypi-dependencies]',
+                  location: { environment: 'test' },
+                },
+              ],
+            },
+          ],
+          packages: [{ name: 'python', version: '3.13.5', build: 'h1_0' }],
+        },
+      ],
+    },
+  );
+});
+
+test('parseWorkspaceSnapshot accepts provenance without structured selectors', () => {
+  const snapshot = parseWorkspaceSnapshot(
+    JSON.stringify({
+      manifest: '/work/conda.toml',
+      name: 'demo',
+      environment_details: [
+        {
+          name: 'default',
+          features: [],
+          prefix: '/work/.conda/envs/default',
+          installed: true,
+          resolutions: [
+            {
+              platform: 'linux-64',
+              subdir: 'linux-64',
+              conda_dependencies: {
+                python: {
+                  spec: 'python',
+                  provenance: { table: '[workspace.dependencies]' },
+                },
+              },
+              pypi_dependencies: {},
+            },
+          ],
+          packages: [],
+        },
+      ],
+    }),
+  );
+
+  assert.equal(snapshot.environments[0]?.resolutions[0]?.dependencies[0]?.location, undefined);
 });
 
 test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {

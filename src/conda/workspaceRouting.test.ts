@@ -65,7 +65,9 @@ test('route registry resolves prefixes and Python executables privately', () => 
     manifestUri: uri('/work/demo/conda.toml'),
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python'],
+    directDependencies: [{ name: 'python', pypi: false }],
+    packages: [],
+    snapshotAvailable: false,
     prefix: path.resolve('/work/demo/.conda/envs/default'),
     pythonPath: path.resolve('/work/demo/.conda/envs/default/bin/python'),
   };
@@ -93,7 +95,9 @@ test('route registry leaves multiply claimed prefixes unowned', () => {
     manifestUri: uri('/work/first/conda.toml'),
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python'],
+    directDependencies: [{ name: 'python', pypi: false }],
+    packages: [],
+    snapshotAvailable: false,
     prefix: sharedPrefix,
     pythonPath: path.join(sharedPrefix, 'bin', 'python'),
   };
@@ -130,7 +134,9 @@ test('route registry treats symlink aliases as the same prefix identity', async 
     manifestUri: uri(path.join(root, 'first', 'conda.toml')),
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python'],
+    directDependencies: [{ name: 'python', pypi: false }],
+    packages: [],
+    snapshotAvailable: false,
     prefix,
     pythonPath,
   };
@@ -159,7 +165,9 @@ test('failed workspace discovery preserves its previous prefix claim', () => {
     manifestUri: uri(manifest),
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python'],
+    directDependencies: [{ name: 'python', pypi: false }],
+    packages: [],
+    snapshotAvailable: false,
     prefix: path.resolve('/work/demo/.conda/envs/default'),
     pythonPath: path.resolve('/work/demo/.conda/envs/default/bin/python'),
   };
@@ -182,7 +190,9 @@ test('a failed claimant keeps a shared prefix conflicted', () => {
     manifestUri: uri(firstManifest),
     environmentName: 'default',
     features: [],
-    directCondaDependencies: ['python'],
+    directDependencies: [{ name: 'python', pypi: false }],
+    packages: [],
+    snapshotAvailable: false,
     prefix: sharedPrefix,
     pythonPath: path.join(sharedPrefix, 'bin', 'python'),
   };
@@ -209,11 +219,14 @@ test('a failed claimant keeps a shared prefix conflicted', () => {
   );
 });
 
-test('dependency feature routing is deterministic and rejects composites', () => {
-  assert.equal(dependencyFeature('default', []), undefined);
+test('legacy dependency feature routing requires exactly one feature', () => {
+  assert.throws(
+    () => dependencyFeature('default', []),
+    /require exactly one feature.*default uses none/,
+  );
   assert.equal(dependencyFeature('test', ['test']), 'test');
   assert.throws(
     () => dependencyFeature('test-py312', ['test', 'py312']),
-    /Package changes require a single feature\. test-py312 uses: test, py312/,
+    /require exactly one feature.*test-py312 uses test, py312/,
   );
 });

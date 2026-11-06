@@ -6,6 +6,7 @@ import {
   parseCondaInfo,
   parseCondaMutationPrefix,
   parseCondaPackages,
+  parseCondaPackageVersions,
 } from './parsers';
 import { isRunnableCondaExecutable } from './executable';
 import {
@@ -112,6 +113,27 @@ export class CondaClient {
   public async getInfo(options: CondaClientOperationOptions = {}): Promise<CondaInfo> {
     const result = await this.runChecked(['info', '--json'], options);
     return parseCondaInfo(result.stdout);
+  }
+
+  public async getVersion(): Promise<string> {
+    const result = await this.runChecked(['--version'], {});
+    const version = /^conda\s+(\S+)\s*$/.exec(result.stdout.trim())?.[1];
+    if (version === undefined) {
+      throw new Error('Invalid conda version output');
+    }
+    return version;
+  }
+
+  public async getPackageVersions(packageName: string): Promise<string[]> {
+    if (!/^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(packageName)) {
+      throw new TypeError('Invalid conda package name');
+    }
+    packageName = packageName.toLowerCase();
+    const result = await this.runChecked(
+      ['search', '--json', '--skip-flexible-search', '--', packageName],
+      {},
+    );
+    return parseCondaPackageVersions(result.stdout, packageName);
   }
 
   public async listPrefixPackages(
