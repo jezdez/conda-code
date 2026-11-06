@@ -172,6 +172,44 @@ prefix inside its scratch directory tests external package-change events without
 installing or removing packages in the supplied environment. The test restores
 the previous selection and removes its scratch files.
 
+For example, run this from the repository root on macOS after adjusting the two
+conda paths. The prefix must already be discoverable by Conda Code; the environment
+variable does not register it. This creates a separate profile and installs the
+Python extensions there. Keep the temporary directory until you have inspected
+any failure logs.
+
+```bash
+export CONDA_CODE_TEST_PREFIX="$HOME/miniforge3"
+export CONDA_CODE_TEST_CONDA="$HOME/miniforge3/bin/conda"
+export CONDA_CODE_TEST_ROOT="$(mktemp -d)"
+mkdir -p "$CONDA_CODE_TEST_ROOT/user/User" "$CONDA_CODE_TEST_ROOT/workspace"
+node -e 'require("node:fs").writeFileSync(process.env.CONDA_CODE_TEST_ROOT + "/user/User/settings.json", JSON.stringify({
+  "security.workspace.trust.enabled": false,
+  "telemetry.telemetryLevel": "off",
+  "python.useEnvironmentsExtension": true,
+  "python-envs.defaultEnvManager": "jezdez.conda-code:conda",
+  "python-envs.defaultPackageManager": "jezdez.conda-code:conda",
+  "python-envs.terminal.autoActivationType": "command",
+  "python-envs.packageWatchers": true,
+  "terminal.integrated.inheritEnv": true,
+  "conda-code.condaExecutable": process.env.CONDA_CODE_TEST_CONDA,
+  "extensions.autoUpdate": false,
+  "update.mode": "none"
+}, null, 2))'
+code --user-data-dir="$CONDA_CODE_TEST_ROOT/user" \
+  --extensions-dir="$CONDA_CODE_TEST_ROOT/extensions" \
+  --install-extension ms-python.python \
+  --install-extension ms-python.vscode-python-envs \
+  --install-extension ms-python.debugpy
+npm run compile
+env -u ELECTRON_RUN_AS_NODE "/Applications/Visual Studio Code.app/Contents/MacOS/Code" \
+  --user-data-dir="$CONDA_CODE_TEST_ROOT/user" \
+  --extensions-dir="$CONDA_CODE_TEST_ROOT/extensions" \
+  --extensionDevelopmentPath="$PWD" \
+  --extensionTestsPath="$PWD/dist/integration/smoke.js" \
+  --skip-welcome --skip-release-notes "$CONDA_CODE_TEST_ROOT/workspace"
+```
+
 ## License
 
 Conda Code is distributed under the

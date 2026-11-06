@@ -127,6 +127,48 @@ test('invalid addition target is rejected before any removal', async (t) => {
   assert.equal(f.calls.includes('remove'), false);
 });
 
+test('legacy shared additions require confirmation before any mutation', async (t) => {
+  for (const choice of ['confirm', 'cancel', 'headless']) {
+    await t.test(choice, async (t) => {
+      const f = packageFixture();
+      t.after(() => f.packages.dispose());
+      const { window } = requireFromTest('vscode') as typeof import('vscode');
+      const prompts: string[] = [];
+      t.mock.method(window, 'showWarningMessage', async (message: string) => {
+        prompts.push(message);
+        return choice === 'confirm' ? 'Change' : undefined;
+      });
+      await f.packages.manage(f.environment, {
+        uninstall: ['numpy'],
+        install: ['pytest'],
+        runHeadless: choice === 'headless',
+      });
+      assert.deepEqual(
+        f.calls.filter((call) => call === 'add' || call === 'remove'),
+        choice === 'confirm' ? ['remove', 'add'] : [],
+      );
+      assert.equal(prompts.length, choice === 'headless' ? 0 : 1);
+      if (prompts.length > 0) assert.match(prompts[0]!, /Change shared workspace dependencies/);
+    });
+  }
+});
+
+test('addition-only headless requests skip shared targets but allow private targets', async (t) => {
+  for (const snapshotAvailable of [false, true]) {
+    await t.test(snapshotAvailable ? 'private' : 'shared', async (t) => {
+      const f = packageFixture();
+      t.after(() => f.packages.dispose());
+      f.state.route = { ...f.state.route!, snapshotAvailable };
+      const { window } = requireFromTest('vscode') as typeof import('vscode');
+      t.mock.method(window, 'showWarningMessage', () => {
+        throw new Error('Headless prompt');
+      });
+      await f.packages.manage(f.environment, { install: ['pytest'], runHeadless: true });
+      assert.equal(f.calls.includes('add'), snapshotAvailable);
+    });
+  }
+});
+
 test('confirmation accepts refreshed equivalent routes but rejects changed declarations', async (t) => {
   for (const changed of [false, true]) {
     await t.test(changed ? 'changed declaration' : 'equivalent route', async (t) => {

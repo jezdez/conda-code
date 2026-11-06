@@ -449,11 +449,27 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
 
     const updateGroups = this.workspaceMutationGroups(route, updates, true);
+    const target =
+      additions.length === 0
+        ? undefined
+        : route.snapshotAvailable
+          ? { environment: route.environmentName }
+          : { feature: dependencyFeature(route.environmentName, route.features) };
     const action =
-      removals.length === 0 ? 'Update' : updateGroups.length === 0 ? 'Remove' : 'Change';
+      target !== undefined
+        ? 'Change'
+        : removals.length === 0
+          ? 'Update'
+          : updateGroups.length === 0
+            ? 'Remove'
+            : 'Change';
     if (
       !(await this.confirmSharedMutation(
-        [...removals, ...updateGroups],
+        [
+          ...removals,
+          ...updateGroups,
+          ...(target === undefined ? [] : [{ location: target, pypi: false, specs: additions }]),
+        ],
         action,
         options.runHeadless === true,
       ))
@@ -472,12 +488,6 @@ export class CondaPackageManager implements PackageManager, Disposable {
     ) {
       throw new Error('Workspace ownership changed during package confirmation');
     }
-    const target =
-      additions.length === 0
-        ? undefined
-        : route.snapshotAvailable
-          ? { environment: route.environmentName }
-          : { feature: dependencyFeature(route.environmentName, route.features) };
     const requireTarget = () => {
       this.requireOwnedEnvironment(environment);
       const current = this.routes.getRoute(environment);

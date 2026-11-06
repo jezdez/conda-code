@@ -6,13 +6,20 @@ immutable GitHub Release through a tag-gated GitHub Actions workflow.
 ## Publish a release
 
 1. Update `package.json` and `package-lock.json` to the new version.
-2. Add the release to `CHANGELOG.md`.
-3. Commit the release preparation and wait for the main checks and documentation
+2. Add the exact heading `## 0.9.0` to `CHANGELOG.md` for this release. The workflow
+   extracts that section as the release notes.
+3. Run `npm run test:coverage`, `npm run lint`, `npm run typecheck`,
+   `npm run format:check`, `npm run docs`, and `npm run vsix`.
+4. Run the isolated VS Code smoke test described in the repository README. Record
+   the tested commit, OS, VS Code version, and Python extension versions in the
+   release preparation PR. CI's unit tests do not exercise the extension host.
+5. Commit the release preparation and wait for the main checks and documentation
    workflows to pass.
-4. Create and push a tag that exactly matches `package.json`:
+6. Verify Marketplace publishing access, then create and push a tag that exactly
+   matches `package.json`:
 
    ```console
-   RELEASE_VERSION=0.8.0
+   RELEASE_VERSION=0.9.0
    git tag -s "${RELEASE_VERSION}" -m "Conda Code ${RELEASE_VERSION}"
    git push origin "${RELEASE_VERSION}"
    ```
