@@ -262,6 +262,21 @@ export function parseCondaPackages(text: string): readonly CondaPackageRecord[] 
   });
 }
 
+export function parseCondaPackageVersions(text: string, packageName: string): string[] {
+  const path = 'conda package search';
+  const value = expectRecord(parseJson(text, path), path);
+  const records = Object.hasOwn(value, packageName) ? value[packageName] : [];
+  return expectArray(records, `${path}.${packageName}`).map((item, index) => {
+    const recordPath = `${path}.${packageName}[${index}]`;
+    const record = expectRecord(item, recordPath);
+    const version = expectString(record.version, `${recordPath}.version`);
+    if (version === '') {
+      throw new Error(`${recordPath}.version must not be empty`);
+    }
+    return version;
+  });
+}
+
 export function parseCondaMutationPrefix(text: string): string {
   const value = expectRecord(parseJson(text, 'conda mutation'), 'conda mutation');
   if (value.prefix !== undefined) {

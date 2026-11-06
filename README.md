@@ -148,6 +148,30 @@ npm run docs
 Run the `Extension` launch configuration in an Extension Development Host.
 Build an installable package with `npm run vsix`.
 
+`npm run test:coverage` reports coverage for loaded production modules, excluding
+test helpers. Modules not loaded by unit tests, including extension activation,
+are not included in the percentages.
+
+The opt-in `dist/integration/smoke.js` test runs inside VS Code, not Node's test
+runner. After compiling, set `CONDA_CODE_TEST_PREFIX` to an existing runnable conda
+environment and launch VS Code with `--extensionDevelopmentPath` pointing here
+and `--extensionTestsPath` pointing to that compiled file. Use a disposable
+workspace, a separate `--user-data-dir`, and a separate `--extensions-dir` with
+the Python, Python Environments, and Python Debugger extensions installed. Set
+`python-envs.terminal.autoActivationType` to `command`, enable
+`python-envs.packageWatchers`, and set `conda-code.condaExecutable` to a working
+conda installation in that isolated profile.
+
+Set `terminal.integrated.inheritEnv` explicitly to `true` in the isolated profile
+to suppress Python's conda environment-inheritance suggestion without changing
+the default behavior. Do not change normal user settings for this test.
+
+The test verifies activation, discovery, selection, package listing, background
+execution, terminal activation, and debug interpreter selection. A metadata-only
+prefix inside its scratch directory tests external package-change events without
+installing or removing packages in the supplied environment. The test restores
+the previous selection and removes its scratch files.
+
 ## License
 
 Conda Code is distributed under the

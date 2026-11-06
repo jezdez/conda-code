@@ -1,3 +1,7 @@
+import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+
+import { compare, explain } from '@renovatebot/pep440';
 import {
   DidChangePackagesEventArgs,
   GetPackagesOptions,
@@ -5,6 +9,8 @@ import {
   PackageInfo,
   PackageManagementOptions,
   PackageManager,
+  PackageVersionLookupNotSupportedError,
+  Pep440Version,
   PythonEnvironment,
   PythonEnvironmentApi,
 } from '@vscode/python-environments';
@@ -13,6 +19,7 @@ import {
   EventEmitter,
   LogOutputChannel,
   ProgressLocation,
+  RelativePattern,
   ThemeIcon,
   window,
 } from 'vscode';
@@ -60,6 +67,9 @@ export class CondaPackageManager implements PackageManager, Disposable {
   public readonly log?: LogOutputChannel;
 
   private readonly packagesByEnvironment = new Map<string, readonly Package[]>();
+  private readonly pendingReads = new Map<string, object>();
+  private cacheGeneration = 0;
+  private disposed = false;
   private readonly cachedEnvironments = new Map<string, PythonEnvironment>();
   private readonly onDidChangePackagesEmitter = new EventEmitter<DidChangePackagesEventArgs>();
 
@@ -102,61 +112,88 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
 
     let route = this.routes.getRoute(current);
-    await window.withProgress(
-      {
-        location: ProgressLocation.Notification,
-        title: `Updating packages in ${current.displayName}`,
-      },
-      async () => {
-        if (route === undefined) {
-          const conda = this.condaForPrefix(current.environmentPath.fsPath, true);
-          if (uninstall.length > 0) {
-            await conda.removePackages(current.environmentPath.fsPath, uninstall);
-          }
-          if (install.length > 0) {
-            await conda.installPackages(current.environmentPath.fsPath, install, {
-              upgrade: options.upgrade,
-            });
-          }
-        } else {
-          await this.routes.refresh(route.projectUri);
-          const refreshedRoute = this.routes.getRoute(current);
+    let mutationsComplete = false;
+    const execute = async () => {
+      this.requireOwnedEnvironment(current);
+      if (route === undefined) {
+        const owner = this.routes.getCondaExecutableForPrefix(current.environmentPath.fsPath);
+        const conda = this.condaForPrefix(current.environmentPath.fsPath, true);
+        const requireTarget = () => {
+          this.requireOwnedEnvironment(current);
           if (
-            refreshedRoute === undefined ||
-            normalizeEnvironmentPath(refreshedRoute.projectUri.fsPath) !==
-              normalizeEnvironmentPath(route.projectUri.fsPath) ||
-            normalizeEnvironmentPath(refreshedRoute.manifestUri.fsPath) !==
-              normalizeEnvironmentPath(route.manifestUri.fsPath) ||
-            refreshedRoute.environmentName !== route.environmentName
+            this.routes.getRoute(current) !== undefined ||
+            this.routes.getCondaExecutableForPrefix(current.environmentPath.fsPath) !== owner
           ) {
-            throw new Error(`Workspace ownership changed for ${current.environmentPath.fsPath}`);
+            throw new Error('Conda ownership changed during package mutation');
           }
-          route = refreshedRoute;
-          await this.manageWorkspace(route, uninstall, install, options);
+        };
+        if (uninstall.length > 0) {
+          requireTarget();
+          await conda.removePackages(current.environmentPath.fsPath, uninstall);
         }
+        if (install.length > 0) {
+          requireTarget();
+          await conda.installPackages(current.environmentPath.fsPath, install, {
+            upgrade: options.upgrade,
+          });
+        }
+      } else {
+        await this.routes.refresh(route.projectUri);
+        this.requireOwnedEnvironment(current);
+        const refreshedRoute = this.routes.getRoute(current);
+        if (refreshedRoute === undefined || !this.sameWorkspaceTarget(route, refreshedRoute)) {
+          throw new Error(`Workspace ownership changed for ${current.environmentPath.fsPath}`);
+        }
+        route = refreshedRoute;
+        await this.manageWorkspace(current, route, uninstall, install, options);
+      }
 
-        if (route === undefined) {
-          this.routes.invalidateRegularDiscovery();
+      if (route === undefined) {
+        this.routes.invalidateRegularDiscovery();
+      }
+      mutationsComplete = true;
+      await this.routes.refresh(route?.projectUri ?? current.environmentPath);
+      const refreshedEnvironment =
+        route === undefined
+          ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
+          : this.routes.getEnvironmentForRoute(route);
+      if (refreshedEnvironment !== undefined) {
+        if (refreshedEnvironment.envId.id !== current.envId.id) {
+          this.packagesByEnvironment.delete(current.envId.id);
+          this.cachedEnvironments.delete(current.envId.id);
+          this.pendingReads.delete(current.envId.id);
         }
-        try {
-          await this.routes.refresh(route?.projectUri ?? current.environmentPath);
-          const refreshedEnvironment =
-            route === undefined
-              ? this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath)
-              : this.routes.getEnvironmentForRoute(route);
-          if (refreshedEnvironment !== undefined) {
-            if (refreshedEnvironment.envId.id !== current.envId.id) {
-              this.packagesByEnvironment.delete(current.envId.id);
-            }
-            await this.refreshPackages(refreshedEnvironment, false);
-          }
-        } catch (error) {
-          this.packagesByEnvironment.clear();
-          this.cachedEnvironments.clear();
-          throw error;
+        await this.refreshPackages(refreshedEnvironment, false);
+      }
+    };
+    try {
+      await window.withProgress(
+        {
+          location: ProgressLocation.Notification,
+          title: `Updating packages in ${current.displayName}`,
+        },
+        execute,
+      );
+    } catch (error) {
+      const previous = this.packagesByEnvironment.get(current.envId.id) ?? [];
+      await this.clearCache();
+      if (mutationsComplete) {
+        throw error;
+      }
+      if (route === undefined) {
+        this.routes.invalidateRegularDiscovery();
+      }
+      try {
+        await this.routes.refresh(route?.projectUri ?? current.environmentPath);
+        const refreshed = this.routes.getEnvironmentForPrefix(current.environmentPath.fsPath);
+        if (refreshed !== undefined) {
+          await this.refreshPackages(this.requireOwnedEnvironment(refreshed), false, previous);
         }
-      },
-    );
+      } catch (refreshError) {
+        this.log?.warn(`Could not refresh after a package error: ${String(refreshError)}`);
+      }
+      throw error;
+    }
   }
 
   // Python Environments 1.36 renders this returned list, while its
@@ -179,7 +216,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
     }
 
     if (options.skipCache === true) {
-      return this.loadAndCachePackages(currentEnvironment, true);
+      return [...(await this.loadAndCachePackages(currentEnvironment, true))];
     }
 
     const key = currentEnvironment.envId.id;
@@ -188,12 +225,72 @@ export class CondaPackageManager implements PackageManager, Disposable {
       return [...cached];
     }
 
-    return this.loadAndCachePackages(currentEnvironment);
+    return [...(await this.loadAndCachePackages(currentEnvironment))];
   }
 
   public async clearCache(): Promise<void> {
+    this.cacheGeneration++;
     this.packagesByEnvironment.clear();
+    this.pendingReads.clear();
     this.cachedEnvironments.clear();
+  }
+
+  public formatInstallSpec(packageName: string, version: string): string {
+    return `${packageName}==${version}`;
+  }
+
+  public async getVersion(environment: PythonEnvironment): Promise<Pep440Version | undefined> {
+    const current = this.requireOwnedEnvironment(environment);
+    const conda =
+      this.routes.getRoute(current) === undefined
+        ? this.condaForPrefix(current.environmentPath.fsPath, true)
+        : this.conda;
+    return explain(await conda.getVersion()) ?? undefined;
+  }
+
+  public async getPackageAvailableVersions(
+    environment: PythonEnvironment,
+    packageName: string,
+  ): Promise<Pep440Version[]> {
+    const current = this.requireOwnedEnvironment(environment);
+    if (this.routes.getRoute(current) !== undefined) {
+      throw new PackageVersionLookupNotSupportedError();
+    }
+    const versions = await this.condaForPrefix(
+      current.environmentPath.fsPath,
+      true,
+    ).getPackageVersions(packageName);
+    const parsed = new Map<string, Pep440Version>();
+    for (const value of versions) {
+      const version = explain(value);
+      if (version === null) {
+        throw new Error(`Conda package version cannot be represented by the Python API: ${value}`);
+      }
+      parsed.set(version.public + (version.local === null ? '' : `+${version.local}`), version);
+    }
+    return [...parsed.entries()]
+      .sort(([left], [right]) => compare(right, left))
+      .map(([, version]) => version);
+  }
+
+  public getPackageWatchTargets(environment: PythonEnvironment): RelativePattern[] {
+    const current = this.currentEnvironment(environment);
+    return current === undefined || this.routes.isConflictedPrefix(current.environmentPath.fsPath)
+      ? []
+      : [new RelativePattern(path.join(current.environmentPath.fsPath, 'conda-meta'), '*.json')];
+  }
+
+  public async getDirectPackageNames(
+    environment: PythonEnvironment,
+  ): Promise<Set<string> | undefined> {
+    const current = this.currentEnvironment(environment);
+    if (current === undefined || this.routes.isConflictedPrefix(current.environmentPath.fsPath)) {
+      return undefined;
+    }
+    const route = this.routes.getRoute(current);
+    return route === undefined
+      ? undefined
+      : new Set(route.directDependencies.map(({ name }) => normalizedPackageName(name)));
   }
 
   public resetWorkspaceCapabilities(): void {
@@ -201,32 +298,44 @@ export class CondaPackageManager implements PackageManager, Disposable {
   }
 
   public async refreshCachedPackages(): Promise<void> {
+    const generation = this.cacheGeneration;
     for (const [key, environment] of [...this.cachedEnvironments]) {
+      if (this.disposed || this.cacheGeneration !== generation) {
+        return;
+      }
       const current = this.routes.getEnvironmentForPrefix(environment.environmentPath.fsPath);
-      if (current === undefined) {
+      if (
+        current === undefined ||
+        current.envId.managerId !== environment.envId.managerId ||
+        this.routes.isConflictedPrefix(environment.environmentPath.fsPath)
+      ) {
         this.packagesByEnvironment.delete(key);
         this.cachedEnvironments.delete(key);
+        this.pendingReads.delete(key);
         continue;
       }
+      const previous = this.packagesByEnvironment.get(key) ?? [];
       if (current.envId.id !== key) {
-        const previous = this.packagesByEnvironment.get(key);
-        if (previous !== undefined) {
-          this.packagesByEnvironment.set(current.envId.id, previous);
-        }
         this.packagesByEnvironment.delete(key);
         this.cachedEnvironments.delete(key);
+        this.pendingReads.delete(key);
       }
-      await this.refreshPackages(current, false);
+      await this.refreshPackages(current, false, previous);
     }
   }
 
   public dispose(): void {
+    this.disposed = true;
+    this.pendingReads.clear();
     this.onDidChangePackagesEmitter.dispose();
     this.packagesByEnvironment.clear();
     this.cachedEnvironments.clear();
   }
 
   private requireOwnedEnvironment(environment: PythonEnvironment): PythonEnvironment {
+    if (this.disposed) {
+      throw new Error('Package manager is disposed');
+    }
     const prefix = environment.environmentPath.fsPath;
     if (this.routes.isConflictedPrefix(prefix)) {
       throw new Error(`Multiple workspace manifests claim the prefix ${prefix}`);
@@ -239,6 +348,9 @@ export class CondaPackageManager implements PackageManager, Disposable {
   }
 
   private currentEnvironment(environment: PythonEnvironment): PythonEnvironment | undefined {
+    if (this.disposed || this.routes.isConflictedPrefix(environment.environmentPath.fsPath)) {
+      return undefined;
+    }
     const current = this.routes.getEnvironmentForPrefix(environment.environmentPath.fsPath);
     return current !== undefined &&
       current.envId.id === environment.envId.id &&
@@ -250,10 +362,13 @@ export class CondaPackageManager implements PackageManager, Disposable {
   private async refreshPackages(
     environment: PythonEnvironment,
     refreshWorkspaceRoute = true,
+    previous = this.packagesByEnvironment.get(environment.envId.id) ?? [],
   ): Promise<Package[]> {
-    const previous = this.packagesByEnvironment.get(environment.envId.id) ?? [];
     const current = await this.loadAndCachePackages(environment, refreshWorkspaceRoute);
 
+    if (this.disposed || this.packagesByEnvironment.get(environment.envId.id) !== current) {
+      return [...current];
+    }
     const changes = diffPackages(previous, current);
     if (changes.length > 0) {
       this.onDidChangePackagesEmitter.fire({
@@ -262,26 +377,54 @@ export class CondaPackageManager implements PackageManager, Disposable {
         changes,
       });
     }
-    return current;
+    return [...current];
   }
 
   private async loadAndCachePackages(
     environment: PythonEnvironment,
     refreshWorkspaceRoute = false,
   ): Promise<Package[]> {
-    const route = this.routes.getRoute(environment);
-    if (refreshWorkspaceRoute && route !== undefined) {
-      await this.routes.refresh(route.projectUri);
-    }
+    this.requireOwnedEnvironment(environment);
     const key = environment.envId.id;
-    const previous = this.packagesByEnvironment.get(key) ?? [];
-    const current = await this.loadPackages(environment, previous);
-    this.packagesByEnvironment.set(key, current);
-    this.cachedEnvironments.set(key, environment);
-    return [...current];
+    const request = {};
+    const generation = this.cacheGeneration;
+    this.pendingReads.set(key, request);
+    try {
+      const route = this.routes.getRoute(environment);
+      if (refreshWorkspaceRoute && route !== undefined) {
+        await this.routes.refresh(route.projectUri);
+      }
+      this.requireOwnedEnvironment(environment);
+      const refreshedRoute = this.routes.getRoute(environment);
+      if (
+        route !== undefined &&
+        (refreshedRoute === undefined || !this.sameWorkspaceTarget(route, refreshedRoute))
+      ) {
+        throw new Error('Workspace ownership changed during package refresh');
+      }
+      if (this.cacheGeneration !== generation) {
+        throw new Error('Package read was superseded');
+      }
+      const previous = this.packagesByEnvironment.get(key) ?? [];
+      const current = await this.loadPackages(environment, previous);
+      this.requireOwnedEnvironment(environment);
+      if (this.cacheGeneration !== generation) {
+        throw new Error('Package read was superseded');
+      }
+      if (this.pendingReads.get(key) === request) {
+        this.packagesByEnvironment.set(key, current);
+        this.cachedEnvironments.set(key, environment);
+      }
+      return current;
+    } finally {
+      if (this.pendingReads.get(key) === request) {
+        this.pendingReads.delete(key);
+      }
+    }
   }
 
   private async manageWorkspace(
+    environment: PythonEnvironment,
     route: CondaWorkspaceRoute,
     uninstall: readonly string[],
     install: readonly string[],
@@ -318,36 +461,58 @@ export class CondaPackageManager implements PackageManager, Disposable {
       return;
     }
 
-    try {
-      for (const group of removals) {
-        await this.workspaces.removeDependencies(route.manifestUri.fsPath, group.specs, {
-          ...group.location,
-          pypi: group.pypi,
-        });
-      }
-      for (const group of updateGroups) {
-        await this.workspaces.updateDependencies(route.manifestUri.fsPath, group.specs, {
-          ...group.location,
-        });
-      }
-      if (additions.length > 0) {
-        const target = route.snapshotAvailable
+    this.requireOwnedEnvironment(environment);
+    const confirmedRoute = this.routes.getRoute(environment);
+    if (
+      confirmedRoute === undefined ||
+      !this.sameWorkspaceTarget(route, confirmedRoute) ||
+      confirmedRoute.snapshotAvailable !== route.snapshotAvailable ||
+      !isDeepStrictEqual(confirmedRoute.features, route.features) ||
+      !isDeepStrictEqual(confirmedRoute.directDependencies, route.directDependencies)
+    ) {
+      throw new Error('Workspace ownership changed during package confirmation');
+    }
+    const target =
+      additions.length === 0
+        ? undefined
+        : route.snapshotAvailable
           ? { environment: route.environmentName }
           : { feature: dependencyFeature(route.environmentName, route.features) };
-        await this.workspaces.addDependencies(route.manifestUri.fsPath, additions, target);
+    const requireTarget = () => {
+      this.requireOwnedEnvironment(environment);
+      const current = this.routes.getRoute(environment);
+      if (current === undefined || !this.sameWorkspaceTarget(route, current)) {
+        throw new Error('Workspace ownership changed during package mutation');
       }
-    } catch (error) {
-      try {
-        await this.routes.refresh(route.projectUri);
-      } catch (refreshError) {
-        this.log?.warn(
-          `Could not refresh after a workspace package error: ${String(refreshError)}`,
-        );
-      }
-      this.packagesByEnvironment.clear();
-      this.cachedEnvironments.clear();
-      throw error;
+    };
+    for (const group of removals) {
+      requireTarget();
+      await this.workspaces.removeDependencies(route.manifestUri.fsPath, group.specs, {
+        ...group.location,
+        pypi: group.pypi,
+      });
     }
+    for (const group of updateGroups) {
+      requireTarget();
+      await this.workspaces.updateDependencies(route.manifestUri.fsPath, group.specs, {
+        ...group.location,
+      });
+    }
+    if (target !== undefined) {
+      requireTarget();
+      await this.workspaces.addDependencies(route.manifestUri.fsPath, additions, target);
+    }
+  }
+
+  private sameWorkspaceTarget(left: CondaWorkspaceRoute, right: CondaWorkspaceRoute): boolean {
+    return (
+      normalizeEnvironmentPath(left.projectUri.fsPath) ===
+        normalizeEnvironmentPath(right.projectUri.fsPath) &&
+      normalizeEnvironmentPath(left.manifestUri.fsPath) ===
+        normalizeEnvironmentPath(right.manifestUri.fsPath) &&
+      normalizeEnvironmentPath(left.prefix) === normalizeEnvironmentPath(right.prefix) &&
+      left.environmentName === right.environmentName
+    );
   }
 
   private workspaceDependency(
@@ -436,6 +601,7 @@ export class CondaPackageManager implements PackageManager, Disposable {
       const cached = previousByName.get(info.name);
       if (
         cached !== undefined &&
+        cached.pkgId.environmentId === environment.envId.id &&
         cached.version === info.version &&
         cached.description === info.description &&
         cached.tooltip === info.tooltip

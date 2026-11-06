@@ -5,6 +5,7 @@ import {
   parseCondaInfo,
   parseCondaMutationPrefix,
   parseCondaPackages,
+  parseCondaPackageVersions,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
   parseWorkspaceImagePreview,
@@ -125,6 +126,46 @@ test('parseCondaPackages keeps package build and channel details', () => {
       { name: 'local-package', version: '1.0', build: '' },
     ],
   );
+});
+
+test('parseCondaPackageVersions preserves search order and duplicate builds', () => {
+  assert.deepEqual(
+    parseCondaPackageVersions(
+      JSON.stringify({
+        numpy: [{ version: '2.0', build: 'py313_0' }, { version: '1.26' }, { version: '2.0' }],
+        python: [{ version: '3.13' }],
+      }),
+      'numpy',
+    ),
+    ['2.0', '1.26', '2.0'],
+  );
+});
+
+test('parseCondaPackageVersions returns no versions for empty or absent package results', () => {
+  assert.deepEqual(parseCondaPackageVersions('{"numpy":[]}', 'numpy'), []);
+  assert.deepEqual(parseCondaPackageVersions('{"python":[{"version":"3.13"}]}', 'numpy'), []);
+  assert.deepEqual(parseCondaPackageVersions('{}', 'constructor'), []);
+});
+
+test('parseCondaPackageVersions rejects malformed output with package search context', () => {
+  const malformed = [
+    ['not JSON', 'conda package search did not return valid JSON'],
+    ['null', 'conda package search must be an object'],
+    ['[]', 'conda package search must be an object'],
+    ['42', 'conda package search must be an object'],
+    ['{"numpy":{}}', 'conda package search.numpy must be an array'],
+    ['{"numpy":null}', 'conda package search.numpy must be an array'],
+    ['{"numpy":[null]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[[]]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[42]}', 'conda package search.numpy[0] must be an object'],
+    ['{"numpy":[{}]}', 'conda package search.numpy[0].version must be a string'],
+    ['{"numpy":[{"version":2}]}', 'conda package search.numpy[0].version must be a string'],
+    ['{"numpy":[{"version":""}]}', 'conda package search.numpy[0].version must not be empty'],
+  ] as const;
+
+  for (const [text, message] of malformed) {
+    assert.throws(() => parseCondaPackageVersions(text, 'numpy'), { message });
+  }
 });
 
 test('parseCondaMutationPrefix accepts current and legacy conda result shapes', () => {

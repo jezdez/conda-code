@@ -363,3 +363,33 @@ test('regular conda mutations reject empty values before spawning', async () => 
   await assert.rejects(client.installPackages('/envs/demo', []), /specs must not be empty/);
   assert.equal(runner.calls.length, 0);
 });
+
+test('package version search validates names and delegates response parsing', async () => {
+  let output: unknown = { numpy: [{ version: '2.0' }, { version: '1.26' }, { version: '2.0' }] };
+  const runner = new RecordingRunner(() => success(output));
+  const client = new CondaClient({ runner, condaExecutable: '_conda' });
+  assert.deepEqual(await client.getPackageVersions('NumPy'), ['2.0', '1.26', '2.0']);
+  assert.deepEqual(runner.calls[0]?.args, [
+    'search',
+    '--json',
+    '--skip-flexible-search',
+    '--',
+    'numpy',
+  ]);
+  for (const name of ['', '--override-channels', 'numpy*', 'numpy>=2', 'a b']) {
+    await assert.rejects(client.getPackageVersions(name), /package name/i);
+  }
+  assert.equal(runner.calls.length, 1);
+  output = 'not JSON';
+  await assert.rejects(client.getPackageVersions('numpy'), /package search/i);
+  output = {};
+  assert.deepEqual(await client.getPackageVersions('numpy'), []);
+});
+
+test('conda tool version uses the configured executable', async () => {
+  const runner = new RecordingRunner(() => success('conda 26.5.3\n'));
+  const client = new CondaClient({ runner, condaExecutable: '_conda' });
+  assert.equal(await client.getVersion(), '26.5.3');
+  assert.deepEqual(runner.calls[0]?.args, ['--version']);
+  assert.equal(runner.calls[0]?.executable, '_conda');
+});

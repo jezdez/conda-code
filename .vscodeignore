@@ -12,6 +12,8 @@ docs/**
 demos/**
 eslint.config.mjs
 dist/**/*.test.js
+dist/conda/testUtils.js
+dist/integration/**
 dist/**/*.js.map
 package-lock.json
 pixi.lock

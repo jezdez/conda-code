@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Use the public Python Environments 1.4 API for package metadata watch targets,
+  workspace direct dependency names, and package-manager version reporting
+- Look up regular package versions through the owning conda installation and
+  generate exact-version install specifications
+- Reject invalidated package reads, recheck ownership and routing before each
+  mutation, and refresh package data after partial failures
+- Report unit-test coverage and extend the isolated VS Code smoke test to cover
+  terminal activation, debug interpreter selection, and package watcher events
+
 ## 0.8.0
 
 - Honor headless package requests without showing prompts or changing shared

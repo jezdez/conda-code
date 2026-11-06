@@ -81,3 +81,49 @@ Workspace `[pypi-dependencies]` are handled by conda-workspaces and conda-pypi.
 New dependencies entered in Conda Code are conda dependencies and are added to
 the selected environment's private declaration when a complete snapshot is
 available.
+
+## Python Environments API
+
+Conda Code uses the published `@vscode/python-environments` 1.4 API. It supplies
+`conda-meta/*.json` watch targets so Python Environments can refresh packages
+after external conda changes in watched environments. Package reads support
+`skipCache` for an explicit fresh read. The provider also reports the
+package-manager tool version.
+
+Direct dependency names are available for workspace environments from their
+discovered declarations. Regular environments return no direct-dependency
+classification because package records do not establish installation intent.
+
+Regular environments with a known owner support package version lookup through
+that owner's `conda search`, using its configured channels and search platform.
+Versions are deduplicated and sorted newest first using the Python API's PEP 440
+representation. An unrepresentable conda version or a failed search reports an
+error. Listed versions are not a guarantee that the environment can solve them.
+Versioned install specifications use `name==version` for an exact version rather
+than conda's single-equals prefix match.
+
+Workspace version lookup is unsupported because the search implementation does
+not yet use workspace channel and platform constraints.
+
+API callers can pass `runHeadless: true` to manage packages without dialogs.
+Requests without an explicit package change do nothing
+in headless mode; interactive requests use the prompt described above. Changes
+to shared declarations require confirmation, including feature-targeted
+additions with 0.7 metadata, and are skipped in headless mode.
+Environment-private changes remain available.
+
+## Cache and mutation safety
+
+Mutation targets are checked before removing any packages. If a command fails
+after making partial changes, Conda Code invalidates cached results and attempts
+to refresh the package view without hiding the original error.
+
+Overlapping package reads can finish normally, but only the latest read can
+update the cache or publish events. Reads invalidated by cache clearing or
+provider disposal are rejected. Ownership is checked again after asynchronous
+refreshes and before mutations.
+
+Multi-command mutations recheck ownership and routing before each write. If the
+provider is disposed or its target changes while a command runs, no subsequent
+write starts. The already-running command is not rolled back; partial changes
+are handled by the failure-reconciliation path.
