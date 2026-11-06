@@ -162,6 +162,10 @@ the Python, Python Environments, and Python Debugger extensions installed. Set
 `python-envs.packageWatchers`, and set `conda-code.condaExecutable` to a working
 conda installation in that isolated profile.
 
+Set `terminal.integrated.inheritEnv` explicitly to `true` in the isolated profile
+to suppress Python's conda environment-inheritance suggestion without changing
+the default behavior. Do not change normal user settings for this test.
+
 The test verifies activation, discovery, selection, package listing, background
 execution, terminal activation, and debug interpreter selection. A metadata-only
 prefix inside its scratch directory tests external package-change events without

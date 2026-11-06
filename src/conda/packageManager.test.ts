@@ -859,7 +859,10 @@ test('package version APIs use the owner, sort versions, and reject workspace lo
   const { vscode, packageManager } = modules();
   const { CondaClient } = requireFromTest('./conda.js') as typeof import('./conda');
   const prefix = path.resolve('/alternate/envs/demo');
-  const owner = path.resolve('/alternate/bin/conda');
+  const owner = path.resolve(
+    '/alternate/bin',
+    process.platform === 'win32' ? 'conda.exe' : 'conda',
+  );
   const environment = {
     envId: { id: prefix, managerId: 'jezdez.conda-code:conda' },
     environmentPath: vscode.Uri.file(prefix),
