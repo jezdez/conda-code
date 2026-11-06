@@ -87,8 +87,9 @@ available.
 Conda Code uses the published `@vscode/python-environments` 1.4 API. It supplies
 `conda-meta/*.json` watch targets so Python Environments can refresh packages
 after external conda changes in watched environments. Package reads support
-`skipCache` for an explicit fresh read. The provider also reports the
-package-manager tool version.
+`skipCache` for an explicit fresh read. The reported tool version is that of the
+owning conda installation for regular environments, or the configured primary
+conda installation for workspaces. It is not the conda-workspaces plugin version.
 
 Direct dependency names are available for workspace environments from their
 discovered declarations. Regular environments return no direct-dependency
