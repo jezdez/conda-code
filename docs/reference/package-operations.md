@@ -1,13 +1,25 @@
 # Package operations
 
-| Environment                                     | List | Install or add | Update       | Remove         |
-| ----------------------------------------------- | ---- | -------------- | ------------ | -------------- |
-| Regular conda with a usable owner executable    | Yes  | Yes            | Yes          | Yes            |
-| Regular conda without a usable owner executable | Yes  | No             | No           | No             |
-| Workspace with conda-workspaces 0.7 metadata    | Yes  | One feature    | No           | No             |
-| Workspace with a complete snapshot              | Yes  | Yes            | No           | No             |
-| Workspace with structured declaration locations | Yes  | Yes            | Direct conda | Direct package |
-| Conflicted workspace prefix                     | No   | No             | No           | No             |
+| Environment                                      | List | Install or add | Update       | Remove               |
+| ------------------------------------------------ | ---- | -------------- | ------------ | -------------------- |
+| Regular conda with a usable owner executable     | Yes  | Yes            | Yes          | Yes                  |
+| Regular conda without a usable owner executable  | Yes  | No             | No           | No                   |
+| Workspace with conda-workspaces 0.7 metadata     | Yes  | One feature    | No           | No                   |
+| Workspace with a complete snapshot, no locations | Yes  | Yes            | No           | No                   |
+| Workspace with dependency declaration locations  | Yes  | Yes            | Direct conda | Direct conda or PyPI |
+| Conflicted workspace prefix                      | No   | No             | No           | No                   |
+
+## Start a package change
+
+When Python Environments opens **Manage Packages** without supplying a package
+change, Conda Code asks for one conda package specification. Enter one complete
+MatchSpec, such as `numpy`, `numpy>=2`, or `conda-forge::numpy >=2,<3`. Conda
+Code treats the complete response as one specification and does not split
+commas or whitespace into multiple packages.
+
+Cancel the prompt to leave the environment unchanged. Blank input is not
+accepted. An entered specification follows the same regular or workspace
+routing described below.
 
 ## Regular package records
 
@@ -40,31 +52,47 @@ metadata cannot distinguish a default environment from an isolated environment,
 and selecting one feature from a composed environment would change other
 environments, so both require a complete snapshot.
 
-When conda-workspaces reports a structured declaration location, Conda Code can
-remove a direct conda or PyPI dependency and update a direct conda dependency.
-It uses the exact environment, feature, and platform selectors from that
-location. A shared feature or default declaration prompts for confirmation
-because the change can affect other environments. Transitive packages remain
-read-only.
+Immediately before a workspace package change, Conda Code refreshes its route
+and verifies that the project URI, manifest URI, and environment name are
+unchanged. It refuses the change when any of those ownership fields differ.
 
-Without structured locations, removal and update are refused with instructions
-to edit the manifest and refresh Conda Code. PyPI dependency updates are not
-supported by `conda workspace update`.
+When conda-workspaces reports a dependency's declaration location, Conda Code
+can remove a direct conda dependency and update it at that exact environment,
+feature, platform, or top-level default declaration. Installing a spec that is
+already a direct conda dependency follows this update path even when the caller
+did not explicitly request an upgrade. This avoids adding a second,
+environment-local declaration that shadows the existing one.
+
+A direct PyPI dependency can be removed when its installed package name matches
+the declaration name. It cannot be updated because `conda workspace update`
+does not support PyPI dependencies. If conda-pypi translated the dependency to
+a different conda record name, Conda Code does not guess the original name and
+leaves that package read-only.
+
+Conda Code asks before changing a top-level default or feature declaration
+because it can affect other environments. The same applies when those
+declarations are platform-qualified. An environment-local declaration does not
+need this confirmation. Transitive packages remain read-only.
+
+Without a structured declaration location, removal and update are refused.
+Edit the manifest, apply the workspace change, then refresh Conda Code.
 
 Workspace `[pypi-dependencies]` are handled by conda-workspaces and conda-pypi.
-New dependencies entered in Conda Code are conda dependencies. Existing direct
-PyPI dependencies can be removed when their declaration location is available.
+New dependencies entered in Conda Code are conda dependencies and are added to
+the selected environment's private declaration when a complete snapshot is
+available.
 
 ## Python Environments API
 
 Conda Code uses the published `@vscode/python-environments` 1.4 API. It supplies
 `conda-meta/*.json` watch targets so Python Environments can refresh packages
-after external conda changes in watched environments. Package reads also support
-`skipCache` for an explicit fresh read.
+after external conda changes in watched environments. Package reads support
+`skipCache` for an explicit fresh read. The provider also reports the
+package-manager tool version.
 
-Direct dependency names are available for workspace environments, using their
+Direct dependency names are available for workspace environments from their
 discovered declarations. Regular environments return no direct-dependency
-classification rather than inferring installation intent.
+classification because package records do not establish installation intent.
 
 Regular environments with a known owner support package version lookup through
 that owner's `conda search`, using its configured channels and search platform.
@@ -74,19 +102,21 @@ error. Listed versions are not a guarantee that the environment can solve them.
 Versioned install specifications use `name==version` for an exact version rather
 than conda's single-equals prefix match.
 
-Workspace version lookup is explicitly unsupported: workspace channel and
-platform constraints are not yet available to the search implementation.
+Workspace version lookup is unsupported because the search implementation does
+not yet use workspace channel and platform constraints.
 
-API callers can pass `runHeadless: true` to manage packages without dialogs or
-progress notifications. Changes to shared workspace declarations, including
-feature-targeted additions with 0.7 metadata, are rejected in headless mode.
-Environment-private changes remain available. Empty package requests do nothing.
+API callers can pass `runHeadless: true` to manage packages without dialogs.
+Requests without an explicit package change do nothing
+in headless mode; interactive requests use the prompt described above. Changes
+to shared declarations require confirmation, including feature-targeted
+additions with 0.7 metadata, and are skipped in headless mode.
+Environment-private changes remain available.
 
-Interactive changes to shared declarations, including legacy feature-targeted
-additions, require confirmation. Mutation targets are checked before removing any
-packages. If a command fails after making partial changes, Conda Code invalidates
-cached results and attempts to refresh the package view without hiding the
-original error.
+## Cache and mutation safety
+
+Mutation targets are checked before removing any packages. If a command fails
+after making partial changes, Conda Code invalidates cached results and attempts
+to refresh the package view without hiding the original error.
 
 Overlapping package reads can finish normally, but only the latest read can
 update the cache or publish events. Reads invalidated by cache clearing or
@@ -96,4 +126,4 @@ refreshes and before mutations.
 Multi-command mutations recheck ownership and routing before each write. If the
 provider is disposed or its target changes while a command runs, no subsequent
 write starts. The already-running command is not rolled back; partial changes
-are handled by the normal failure-reconciliation path.
+are handled by the failure-reconciliation path.

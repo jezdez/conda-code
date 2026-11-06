@@ -24,6 +24,8 @@ import {
 } from './conda/infoCache';
 import { isPixiProjectManifest } from './conda/manifestOwnership';
 import { CondaPackageManager } from './conda/packageManager';
+import { CondaWorkspaceProjectFinder } from './conda/projects';
+import { exportSelectedEnvironmentSbom } from './conda/sbom';
 import { CondaSelectionState } from './conda/selectionState';
 import {
   CONDA_WORKSPACE_TASK_TYPE,
@@ -31,6 +33,18 @@ import {
   runWorkspaceTask,
 } from './conda/tasks';
 import { normalizeEnvironmentPath } from './conda/workspaceRouting';
+import {
+  createWorkspaceEnvironment,
+  importWorkspaceEnvironment,
+  removeWorkspaceEnvironment,
+} from './conda/workspaceActions';
+import { buildWorkspaceImage, previewWorkspaceImage } from './conda/workspaceImage';
+import {
+  installLockedWorkspaceEnvironment,
+  showWorkspaceLockStatus,
+  updateWorkspaceLockfile,
+} from './conda/workspaceLocks';
+import { exportWorkspaceLockfileSbom } from './conda/workspaceSbom';
 import { CondaWorkspacesClient } from './conda/workspaces';
 
 const MANIFEST_WATCH_PATTERN = '**/{conda.toml,pixi.toml,pyproject.toml,conda.lock}';
@@ -40,9 +54,11 @@ const CONDA_INFO_CACHE_KEY = 'conda-code.condaInfo';
 const PIXI_CODE_EXTENSION_ID = 'renan-r-santos.pixi-code';
 
 interface CondaCodeRuntime extends Disposable {
+  readonly conda: CondaClient;
   readonly environments: CondaEnvironmentManager;
   readonly packages: CondaPackageManager;
   readonly tasks: CondaWorkspaceTaskProvider;
+  readonly workspaces: CondaWorkspacesClient;
   readonly forceCondaInfoEnrichment: () => Promise<void>;
 }
 
@@ -75,6 +91,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   const managerId = `${context.extension.id}:conda`;
   let runtime: CondaCodeRuntime | undefined;
   let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let scheduledScope: Uri | undefined;
   let scheduledInvalidateRegular = false;
   let scheduledForceCondaInfo = false;
   let condaInfoCacheWrites: Promise<void> = Promise.resolve();
@@ -240,6 +257,9 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const environmentRegistration = api.registerEnvironmentManager(environments, {
       extensionId: context.extension.id,
     });
+    const projectFinderRegistration = api.registerPythonProjectCreator(
+      new CondaWorkspaceProjectFinder(api, workspaces, { log, shouldHandleManifest }),
+    );
     const taskProvider = new CondaWorkspaceTaskProvider(workspaces, condaExecutable, {
       log,
       listWorkspaceManifests: () => environments.getWorkspaceManifests(),
@@ -263,14 +283,17 @@ export async function activate(context: ExtensionContext): Promise<void> {
 
     log.info(`Registered ${managerId} using ${condaExecutable}`);
     return {
+      conda,
       environments,
       packages,
       tasks: taskProvider,
+      workspaces,
       forceCondaInfoEnrichment,
       dispose: () => {
         disposed = true;
         configurationWatcher.dispose();
         taskRegistration.dispose();
+        projectFinderRegistration.dispose();
         environmentRegistration.dispose();
         packageRegistration.dispose();
         taskProvider.dispose();
@@ -301,11 +324,15 @@ export async function activate(context: ExtensionContext): Promise<void> {
       if (invalidateRegular) {
         current.environments.invalidateRegularDiscovery();
       }
-      await current.packages.clearCache();
+      current.packages.resetWorkspaceCapabilities();
       if (runtime !== current) {
         return;
       }
       await current.environments.refresh(scope);
+      if (runtime !== current) {
+        return;
+      }
+      await current.packages.refreshCachedPackages();
     } catch (error) {
       log.error(`Refresh failed: ${messageFromError(error)}`);
     } finally {
@@ -320,6 +347,16 @@ export async function activate(context: ExtensionContext): Promise<void> {
     invalidateRegular = false,
     forceCondaInfo = false,
   ): void => {
+    const projectScope = scope === undefined ? undefined : api.getPythonProject(scope)?.uri;
+    if (refreshTimer === undefined) {
+      scheduledScope = projectScope;
+    } else if (
+      projectScope === undefined ||
+      scheduledScope === undefined ||
+      projectScope.toString(true) !== scheduledScope.toString(true)
+    ) {
+      scheduledScope = undefined;
+    }
     scheduledInvalidateRegular ||= invalidateRegular;
     scheduledForceCondaInfo ||= forceCondaInfo;
     if (refreshTimer !== undefined) {
@@ -327,11 +364,13 @@ export async function activate(context: ExtensionContext): Promise<void> {
     }
     refreshTimer = setTimeout(() => {
       refreshTimer = undefined;
+      const nextScope = scheduledScope;
       const nextInvalidateRegular = scheduledInvalidateRegular;
       const nextForceCondaInfo = scheduledForceCondaInfo;
+      scheduledScope = undefined;
       scheduledInvalidateRegular = false;
       scheduledForceCondaInfo = false;
-      void refresh(scope, nextInvalidateRegular, nextForceCondaInfo);
+      void refresh(nextScope, nextInvalidateRegular, nextForceCondaInfo);
     }, REFRESH_DELAY_MS);
   };
 
@@ -340,6 +379,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       clearTimeout(refreshTimer);
       refreshTimer = undefined;
     }
+    scheduledScope = undefined;
     scheduledInvalidateRegular = false;
     scheduledForceCondaInfo = false;
     return refresh(undefined, true, true);
@@ -356,9 +396,143 @@ export async function activate(context: ExtensionContext): Promise<void> {
     watcher.onDidDelete(scheduleRefresh),
     api.onDidChangePythonProjects(() => scheduleRefresh()),
     commands.registerCommand('conda-code.refresh', refreshImmediately),
+    commands.registerCommand('conda-code.exportEnvironmentSbom', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return exportSelectedEnvironmentSbom({
+        api,
+        conda: current.conda,
+        environments: current.environments,
+        log,
+        managerId,
+        scope: window.activeTextEditor?.document.uri,
+      });
+    }),
+    commands.registerCommand('conda-code.exportWorkspaceLockfileSbom', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return exportWorkspaceLockfileSbom({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.previewWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return previewWorkspaceImage({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.buildWorkspaceImage', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return buildWorkspaceImage({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.runWorkspaceTask', (manifest?: Uri) =>
       runWorkspaceTask(runtime?.tasks, manifest ?? window.activeTextEditor?.document.uri),
     ),
+    commands.registerCommand('conda-code.showWorkspaceLockStatus', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return showWorkspaceLockStatus({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.updateWorkspaceLockfile', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return updateWorkspaceLockfile({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.installLockedWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return installLockedWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.createWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return createWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
+    commands.registerCommand('conda-code.importWorkspaceEnvironment', (definition?: Uri) => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return importWorkspaceEnvironment(
+        {
+          api,
+          environments: current.environments,
+          log,
+          scope: window.activeTextEditor?.document.uri,
+          workspaces: current.workspaces,
+        },
+        definition,
+      );
+    }),
+    commands.registerCommand('conda-code.removeWorkspaceEnvironment', () => {
+      const current = runtime;
+      if (current === undefined) {
+        return;
+      }
+      return removeWorkspaceEnvironment({
+        api,
+        environments: current.environments,
+        log,
+        scope: window.activeTextEditor?.document.uri,
+        workspaces: current.workspaces,
+      });
+    }),
     commands.registerCommand('conda-code.createEnvironmentFromFile', async (definition?: Uri) => {
       const source = definition ?? window.activeTextEditor?.document.uri;
       const current = runtime;

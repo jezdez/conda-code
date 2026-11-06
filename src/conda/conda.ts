@@ -37,7 +37,14 @@ export interface CondaEnvironmentFileCreateOptions extends CondaClientOperationO
   readonly noDefaultPackages?: boolean;
 }
 
-function structuredError(text: string): string | undefined {
+const CYCLONEDX_JSON_FORMAT = 'cyclonedx-json-v1.7';
+
+interface ParsedStructuredError {
+  readonly detail: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
+function structuredError(text: string): ParsedStructuredError | undefined {
   try {
     const value = JSON.parse(text) as unknown;
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -47,7 +54,10 @@ function structuredError(text: string): string | undefined {
     for (const key of ['message', 'error']) {
       const detail = record[key];
       if (typeof detail === 'string' && detail.trim() !== '') {
-        return detail.trim().slice(0, 500);
+        return {
+          detail: detail.trim().slice(0, 500),
+          details: record,
+        };
       }
     }
   } catch {
@@ -56,9 +66,26 @@ function structuredError(text: string): string | undefined {
   return undefined;
 }
 
-function firstLine(text: string): string | undefined {
-  const line = text.split(/\r?\n/, 1)[0]?.trim().slice(0, 500);
-  return line === '' ? undefined : line;
+export class CondaCommandError extends Error {
+  public override readonly name = 'CondaCommandError';
+
+  public constructor(
+    message: string,
+    public readonly exitCode: number,
+    public readonly details?: Readonly<Record<string, unknown>>,
+  ) {
+    super(message);
+  }
+}
+
+function commandErrorLine(text: string): string | undefined {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  const argparseError = lines.find((line) => /:\s*error:\s*/i.test(line));
+  const detail = argparseError?.replace(/^.*?:\s*error:\s*/i, '').trim() ?? lines[0];
+  return detail === undefined || detail === '' ? undefined : detail.slice(0, 500);
 }
 
 export function requireValue(value: string, label: string): string {
@@ -86,7 +113,7 @@ export class CondaClient {
     this.runner = options.runner ?? new SpawnCommandRunner();
     this.configuredExecutable = requireValue(options.condaExecutable ?? 'conda', 'condaExecutable');
     if (!isRunnableCondaExecutable(this.configuredExecutable)) {
-      throw new TypeError('condaExecutable must invoke conda directly');
+      throw new TypeError('condaExecutable must invoke conda, cx, or cxz');
     }
     this.maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     if (!Number.isSafeInteger(this.maxOutputBytes) || this.maxOutputBytes <= 0) {
@@ -206,6 +233,26 @@ export class CondaClient {
     );
   }
 
+  public async exportEnvironmentSbom(
+    prefix: string,
+    file: string,
+    options: CondaClientOperationOptions = {},
+  ): Promise<void> {
+    await this.runChecked(
+      [
+        'export',
+        '--prefix',
+        requireValue(prefix, 'prefix'),
+        '--from-history',
+        '--format',
+        CYCLONEDX_JSON_FORMAT,
+        '--file',
+        requireValue(file, 'file'),
+      ],
+      options,
+    );
+  }
+
   public async installPackages(
     prefix: string,
     specs: readonly string[],
@@ -254,12 +301,17 @@ export class CondaClient {
     };
     const result = await this.runner.run(this.configuredExecutable, args, runOptions);
     if (result.exitCode !== 0) {
+      const structured = structuredError(result.stdout);
       const detail =
-        structuredError(result.stdout) ??
-        firstLine(result.stderr) ??
-        firstLine(result.stdout) ??
+        structured?.detail ??
+        commandErrorLine(result.stderr) ??
+        commandErrorLine(result.stdout) ??
         `exit code ${result.exitCode}`;
-      throw new Error(`${this.configuredExecutable} failed with ${detail}`);
+      throw new CondaCommandError(
+        `${this.configuredExecutable} failed with ${detail}`,
+        result.exitCode,
+        structured?.details,
+      );
     }
     return result;
   }

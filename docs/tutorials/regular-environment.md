@@ -53,5 +53,5 @@ The printed prefix matches the `conda-code-demo` environment shown by
 ## What happened
 
 The environment is an ordinary named conda prefix with `conda-meta` records.
-Core `conda` commands see the same environment model. Conda Code adds the VS Code
-integration, not a new regular environment format.
+Conda Code manages it through VS Code, and core `conda` commands can manage it
+from a terminal.

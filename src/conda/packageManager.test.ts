@@ -93,22 +93,27 @@ function deferredPackages() {
   return { promise, resolve };
 }
 
-test('legacy additions require confirmation and cancellation makes no changes', async (t) => {
+test('shared dependency updates require confirmation and cancellation makes no changes', async (t) => {
   const f = packageFixture();
   t.after(() => f.packages.dispose());
+  f.state.route = {
+    ...f.state.route!,
+    directDependencies: [{ name: 'numpy', pypi: false, location: { feature: 'dev' } }],
+  };
   const { window } = requireFromTest('vscode') as typeof import('vscode');
   let confirmed = false;
   let prompts = 0;
   t.mock.method(window, 'showWarningMessage', async () => {
     prompts++;
-    return confirmed ? 'Change' : undefined;
+    return confirmed ? 'Update' : undefined;
   });
-  await f.packages.manage(f.environment, { install: ['pytest'] });
+  await f.packages.manage(f.environment, { install: ['numpy>=2'] });
   assert.equal(prompts, 1);
-  assert.equal(f.calls.includes('add'), false);
+  assert.equal(f.calls.includes('update'), false);
   confirmed = true;
-  await f.packages.manage(f.environment, { install: ['pytest'] });
-  assert.equal(f.calls.filter((c) => c === 'add').length, 1);
+  await f.packages.manage(f.environment, { install: ['numpy>=2'] });
+  assert.equal(f.calls.filter((c) => c === 'update').length, 1);
+  assert.equal(f.calls.includes('add'), false);
 });
 
 test('invalid addition target is rejected before any removal', async (t) => {
@@ -120,6 +125,37 @@ test('invalid addition target is rejected before any removal', async (t) => {
     /exactly one feature/,
   );
   assert.equal(f.calls.includes('remove'), false);
+});
+
+test('confirmation accepts refreshed equivalent routes but rejects changed declarations', async (t) => {
+  for (const changed of [false, true]) {
+    await t.test(changed ? 'changed declaration' : 'equivalent route', async (t) => {
+      const f = packageFixture();
+      t.after(() => f.packages.dispose());
+      f.state.route = {
+        ...f.state.route!,
+        directDependencies: [{ name: 'numpy', pypi: false, location: { feature: 'dev' } }],
+      };
+      const { window } = requireFromTest('vscode') as typeof import('vscode');
+      t.mock.method(window, 'showWarningMessage', async () => {
+        f.state.route = {
+          ...f.state.route!,
+          directDependencies: [
+            { name: 'numpy', pypi: false, location: { feature: changed ? 'other' : 'dev' } },
+          ],
+        };
+        return 'Update';
+      });
+      const operation = f.packages.manage(f.environment, { install: ['numpy'], upgrade: true });
+      if (changed) {
+        await assert.rejects(operation, /changed/);
+        assert.equal(f.calls.includes('update'), false);
+      } else {
+        await operation;
+        assert.equal(f.calls.filter((call) => call === 'update').length, 1);
+      }
+    });
+  }
 });
 
 test('workspace mutation rejects transitive packages before changing direct packages', async (t) => {
@@ -214,14 +250,19 @@ test('workspace mutations revalidate identity after refresh and confirmation', a
           replace();
         };
       else {
+        f.state.route = {
+          ...f.state.route!,
+          directDependencies: [{ name: 'numpy', pypi: false, location: { feature: 'dev' } }],
+        };
         const { window } = requireFromTest('vscode') as typeof import('vscode');
         t.mock.method(window, 'showWarningMessage', async () => {
           replace();
-          return 'Change';
+          return 'Update';
         });
       }
-      await assert.rejects(f.packages.manage(f.environment, { install: ['pytest'] }), /own/);
+      await assert.rejects(f.packages.manage(f.environment, { install: ['numpy'] }), /own/);
       assert.equal(f.calls.includes('add'), false);
+      assert.equal(f.calls.includes('update'), false);
     });
   }
 });
@@ -404,6 +445,48 @@ test('watcher reads do not turn successful mutations into failures', async (t) =
   assert.equal((await f.packages.getPackages(f.environment))?.[0]?.name, 'new');
 });
 
+test('cached workspace refresh uses current scoped metadata and new environment identity', async (t) => {
+  const f = packageFixture();
+  t.after(() => f.packages.dispose());
+  f.state.route = {
+    ...f.state.route!,
+    packages: [{ name: 'numpy', version: '2', build: '0' }],
+  };
+  const before = (await f.packages.getPackages(f.environment))![0]!;
+  const replacement = {
+    ...f.environment,
+    envId: { ...f.environment.envId, id: 'replacement' },
+  };
+  f.state.environment = replacement;
+  await f.packages.refreshCachedPackages();
+  const after = (await f.packages.getPackages(replacement))![0]!;
+  assert.notEqual(after, before);
+  assert.equal(after.pkgId.environmentId, replacement.envId.id);
+  assert.equal(await f.packages.getPackages(f.environment), undefined);
+  f.state.route = {
+    ...f.state.route!,
+    directDependencies: [{ name: 'numpy', pypi: true, table: 'feature.dev.pypi-dependencies' }],
+  };
+  await f.packages.refreshCachedPackages();
+  const updated = (await f.packages.getPackages(replacement))![0]!;
+  assert.equal(updated.description, 'Build 0, Direct PyPI dependency');
+  assert.equal(updated.tooltip, 'Declared in feature.dev.pypi-dependencies');
+  assert.deepEqual(await f.packages.getDirectPackageNames(replacement), new Set(['numpy']));
+  assert.deepEqual(f.calls, [], 'Cached refresh must consume already-refreshed scoped routes');
+});
+
+test('clearing caches also forgets environments tracked for refresh', async (t) => {
+  const f = packageFixture();
+  t.after(() => f.packages.dispose());
+  f.state.route = undefined;
+  await f.packages.getPackages(f.environment);
+  await f.packages.clearCache();
+  f.conda.listPrefixPackages = async () => {
+    assert.fail('Cleared environments must not be refreshed');
+  };
+  await f.packages.refreshCachedPackages();
+});
+
 test('workspace package changes follow snapshot capabilities', async (t) => {
   const { vscode, packageManager } = modules();
   const projectUri = vscode.Uri.file('/work/demo');
@@ -485,7 +568,7 @@ test('workspace package changes follow snapshot capabilities', async (t) => {
 
   await assert.rejects(
     packages.manage(environment, { install: ['pytest'], runHeadless: true }),
-    /shared workspace dependencies.*headless/i,
+    /exactly one feature/,
   );
   await assert.rejects(
     packages.manage(environment, { install: ['numpy'], upgrade: true }),
@@ -524,15 +607,12 @@ test('workspace package changes follow snapshot capabilities', async (t) => {
       { name: 'rich', pypi: false, location: { feature: 'dev', platform: 'linux-64' } },
     ],
   };
-  await assert.rejects(
-    packages.manage(environment, {
-      uninstall: ['numpy'],
-      install: ['rich>=14'],
-      upgrade: true,
-      runHeadless: true,
-    }),
-    /shared workspace dependencies.*headless/i,
-  );
+  await packages.manage(environment, {
+    uninstall: ['numpy'],
+    install: ['rich>=14'],
+    upgrade: true,
+    runHeadless: true,
+  });
   assert.equal(changes.length, 1);
   await packages.manage(environment, {
     uninstall: ['numpy'],
@@ -923,9 +1003,6 @@ test('regular package operations use the environment owner', async (t) => {
   t.after(() => packages.dispose());
 
   const { window } = requireFromTest('vscode') as typeof import('vscode');
-  t.mock.method(window, 'withProgress', () => {
-    throw new Error('headless progress UI');
-  });
   t.mock.method(window, 'showWarningMessage', () => {
     throw new Error('headless prompt');
   });

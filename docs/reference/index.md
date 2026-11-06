@@ -30,7 +30,7 @@ Recognized inputs, precedence, naming, and exact-package behavior.
 :link: environment-operations
 :link-type: doc
 
-Discovery, creation, selection, and removal by environment type.
+Discovery, creation, selection, removal, and SBOM export by environment type.
 :::
 
 :::{grid-item-card} {octicon}`package` Package operations

@@ -1,7 +1,7 @@
 # Workspace tasks
 
 Conda Code implements a native VS Code task provider for tasks declared in
-conda-workspaces manifests.
+workspace manifests.
 
 ## Discovery scope
 
@@ -11,7 +11,7 @@ Environments. A matching file elsewhere in the VS Code window is not a task
 source. Task-only manifests are not included.
 
 The Pixi Code coexistence rule applies before task discovery. When Pixi Code is
-installed, Conda Code skips every `pixi.toml` and every `pyproject.toml` project
+installed, Conda Code skips every `pixi.toml` and every `pyproject.toml` workspace
 with a `[tool.pixi]` table, including its tasks.
 
 For each selected manifest, Conda Code runs:
@@ -20,9 +20,9 @@ For each selected manifest, Conda Code runs:
 conda task --file /path/to/manifest list --json
 ```
 
-Conda Code publishes project tasks returned by conda-workspaces. It omits
+Conda Code publishes workspace tasks returned by conda-workspaces. It omits
 user-level tasks marked with `source: "user"` so they are not repeated for
-every project. Conda Code does not parse the manifest's task tables.
+every workspace. Conda Code does not parse the manifest's task tables.
 
 ## VS Code task definition
 
@@ -31,7 +31,7 @@ properties:
 
 | Property | Meaning                                 |
 | -------- | --------------------------------------- |
-| `task`   | Declared conda-workspaces task name     |
+| `task`   | Declared workspace task name            |
 | `file`   | Workspace-folder-relative manifest path |
 
 Discovered tasks use `conda-workspaces` as their VS Code source.

@@ -1,7 +1,7 @@
 # Create a workspace environment
 
-This tutorial creates a `conda.toml` project and lets conda-workspaces manage
-its environment.
+This tutorial creates a workspace with `conda.toml` and lets conda-workspaces
+manage its environment.
 
 ## Before you start
 
@@ -21,8 +21,8 @@ the **Conda Code** branch and handles operations aimed at it. See
 3. Select **Conda Code** if VS Code asks for an environment manager.
 
 Conda Code runs `conda workspace quickstart` with the conda manifest format. The
-project gains a `conda.toml` file and an installed default environment with
-Python.
+folder gains a `conda.toml` workspace manifest and an installed default
+environment with Python.
 
 The manifest starts with the same basic shape as:
 
@@ -30,14 +30,14 @@ The manifest starts with the same basic shape as:
 [workspace]
 name = "example"
 channels = ["CONFIGURED_CHANNEL"]
-platforms = ["linux-64", "osx-arm64", "win-64"]
+platforms = ["CURRENT_SUBDIR"]
 
-[dependencies]
+[environments.default.dependencies]
 python = "*"
 ```
 
-The channel and exact platforms come from the configured conda installation and
-conda-workspaces.
+The channel and current subdir come from the configured conda installation.
+Quick Create places Python in the default environment that it installs.
 
 ## Add a dependency
 
@@ -51,9 +51,10 @@ conda workspace list
 ```
 
 The package view labels packages as direct or transitive dependencies.
-When conda-workspaces reports structured declaration locations, you can also
+When conda-workspaces reports dependency declaration locations, you can also
 remove a direct dependency or update a direct conda dependency from this view.
-Conda Code confirms changes to declarations shared by several environments.
+Conda Code asks before changing a declaration outside the selected
+environment's private dependency table.
 
 ## Declare a task
 

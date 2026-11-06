@@ -1,6 +1,6 @@
 # Regular environments and workspaces
 
-Conda Code presents regular conda environments and conda workspace environments
+Conda Code presents regular conda environments and workspace environments
 through the same provider. The difference is where the environment definition
 lives and which command should change it.
 
@@ -16,7 +16,7 @@ core commands such as `conda create`, `conda install`, and `conda remove`.
 :::{grid-item-card} Workspace environment
 
 The workspace manifest is the source. Conda Code uses `conda workspace`
-commands so changes remain represented by the project.
+commands so changes remain represented by the manifest.
 :::
 
 ::::
@@ -93,7 +93,7 @@ effective `envs_dirs`. Until enrichment succeeds, the last committed
 environment snapshot remains available.
 
 Workspace discovery is separate and can run `conda workspace` commands for
-registered project manifests.
+workspace manifests registered through Python Environments.
 
 ## Why workspaces need a separate route
 
@@ -107,7 +107,6 @@ not publish the environment.
 
 ## Why both appear together
 
-The Python Environments view is most useful when a developer can select a
-Python environment without first knowing which `conda` command created it.
-Conda Code keeps that common selection surface while preserving the distinct
-change path behind each environment.
+The Python Environments view lets you select regular and workspace environments
+without knowing which `conda` command created them. Conda Code uses the selected
+environment's owner or workspace manifest for later changes.

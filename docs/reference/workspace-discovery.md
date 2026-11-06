@@ -12,9 +12,14 @@ The order above is the priority when more than one candidate exists in a
 directory. At most one workspace is published for that directory, and only
 that selected manifest contributes tasks. See [](workspace-tasks.md).
 
+When another provider owns a higher-priority manifest in an unregistered
+directory, **Find workspaces** does not offer a lower-priority manifest from the
+same directory. A manifest that fails Conda Code's own validation does not
+prevent consideration of the next candidate.
+
 The search excludes `.git`, `.conda`, `.pixi`, and `node_modules`.
 
-## Project requirement
+## Python project registration
 
 The candidate directory must be an exact Python project root registered with
 Python Environments. A manifest elsewhere in the VS Code window is ignored.
@@ -32,6 +37,13 @@ discovery. Only installed environments are published. A declared but
 uninstalled environment becomes available through the environment creation
 flow.
 
+Manifest validation failures reported by conda-workspaces appear in the
+Problems panel on the affected manifest. Conda Code uses the backend message
+and location when available. Current conda-workspaces releases report these as
+file-level diagnostics. Correcting, removing, or changing ownership of the
+manifest clears the diagnostic on the next refresh. An invalid manifest is not
+retried through the older discovery commands.
+
 ## Pixi Code rule
 
 When `renan-r-santos.pixi-code` is installed, Conda Code skips:
@@ -45,10 +57,12 @@ Skipped manifests contribute neither environments nor tasks.
 
 ## Prefix routing
 
-Each published workspace environment records its manifest, project, environment
-name, features, direct dependencies, installed packages, prefix, and Python
-path. A complete snapshot can also report the exact manifest location of each
-direct dependency.
+Each published workspace environment records its manifest, Python project,
+environment name, features, direct dependencies, installed packages, prefix,
+and Python path. A complete snapshot can also report the exact environment,
+feature, platform, or top-level default declaration for a direct dependency.
+The environment description and tooltip show the workspace-wide lockfile
+status and its reported reason when conda-workspaces provides them.
 
 When exactly one manifest reports a prefix, environment and package changes use
 workspace commands. When several manifests report the same prefix, Conda Code
@@ -63,7 +77,10 @@ Conda Code watches:
 - `pyproject.toml`
 - `conda.lock`
 
-Changes schedule a refresh. The manual
-**Conda Code: Refresh Environments** command clears package data and refreshes
-environment and task sources. It also starts forced conda-information
-enrichment in the background.
+File changes and refreshes scoped to a registered Python project inspect only
+the affected workspaces. Conda Code still reconciles the full published
+environment set after that inspection.
+
+The manual **Conda Code: Refresh Environments** command clears package data and
+refreshes all environment and task sources. It also starts forced
+conda-information enrichment in the background.

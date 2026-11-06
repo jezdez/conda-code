@@ -62,3 +62,30 @@ Raw pip-only distributions are omitted. Packages installed by conda-pypi have
 conda records and remain visible.
 
 See the [](../reference/package-operations.md) for the workspace differences.
+
+## Export an environment SBOM
+
+1. Install conda-sboms 0.3.0 or newer from conda-forge by running this through
+   the routed conda executable:
+
+   ```console
+   conda install --name base --channel conda-forge "conda-sboms>=0.3.0"
+   ```
+
+   Replace `conda` with `cx`, `cxz`, or the configured executable path when
+   needed. The
+   [installation guide](https://conda-incubator.github.io/conda-sboms/how-to/install/)
+   covers alternative methods.
+
+2. Run the routed executable with `export --help` and confirm that
+   `cyclonedx-json-v1.7` is listed.
+3. Select the Conda Code environment for the active editor scope.
+4. Run **Conda Code: Export Environment SBOM** and choose the JSON destination.
+
+The save dialog proposes `<environment>.cdx.json`. Conda Code exports with
+`--from-history`, which preserves requested package roots when conda history
+contains them while the SBOM still includes the resolved package set.
+
+For a regular environment, install the plugin beside the conda executable that
+owns its prefix. For a workspace environment, install it beside the configured
+primary conda executable.

@@ -23,7 +23,7 @@ Conda Code adds its own conda environment and package manager to the
 [Python Environments extension](https://marketplace.visualstudio.com/items?itemName=ms-python.vscode-python-envs).
 It discovers regular environments across local conda installations and
 integrates [conda-workspaces](https://github.com/conda-incubator/conda-workspaces)
-project environments and tasks in the same provider.
+workspace environments and tasks in the same provider.
 
 ![Conda Code runs Create Environment from File for environment.yml and selects the resulting named environment for the project in Visual Studio Code.](docs/_static/conda-code-demo.gif)
 
@@ -72,17 +72,22 @@ check regular environment and workspace discovery.
 - **Creation inputs:** Create named environments from package specifications,
   `environment.yml`, [CEP 23](https://conda.org/learn/ceps/cep-0023/) explicit
   files, and [conda-lockfiles](https://github.com/conda/conda-lockfiles).
-- **conda workspaces:** Discover, install, and manage conda-workspaces
-  environments, then run declared tasks from the manifest editor through native
-  VS Code Tasks. Conda Code detects richer workspace snapshots and declaration
-  metadata when the installed conda-workspaces provides them.
+- **conda-workspaces:** Discover, install, activate, and manage workspace
+  environments, create, import, and remove environment declarations, then run
+  declared tasks from the manifest editor through native VS Code Tasks. Shell
+  activation targets the exact installed workspace prefix. Conda Code uses
+  complete workspace snapshots and dependency declaration locations when
+  conda-workspaces reports them.
 - **Owner-aware operations:** Route activation, package changes, and safe
-  deletion through the conda installation that owns each prefix.
+  deletion through the conda installation that owns each prefix. Run **Conda
+  Code: Export Environment SBOM** for an installed prefix, or **Conda Code:
+  Export Workspace Lockfile SBOM** for a declared environment that may not be
+  installed.
 - **Ecosystem compatibility:** Include
   [conda-pypi](https://github.com/conda/conda-pypi) package records, ignore
   [conda-global](https://github.com/conda-incubator/conda-global) tool prefixes
   and [conda-exec](https://github.com/conda-incubator/conda-exec) cache prefixes,
-  and leave Pixi projects to
+  and leave Pixi workspaces to
   [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
   when it is installed.
 
@@ -96,7 +101,7 @@ Required:
 - Visual Studio Code 1.118 or newer
 - conda 26.3 or newer
 - A trusted VS Code window for project operations
-- A local project registered with Python Environments for project-scoped
+- A local folder registered as a Python project for project-scoped
   creation and workspace discovery
 
 Optional integrations:
@@ -104,9 +109,11 @@ Optional integrations:
 - conda-workspaces 0.7 or newer for workspace environments and tasks
 - conda-lockfiles 0.2 or newer for conda lockfile creation inputs
 - conda 26.5 or newer for workspace PyPI dependencies
+- [conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer
+  for selected-environment CycloneDX export
 
 Newer conda-workspaces capabilities are detected at runtime. The 0.7 integration
-remains available when complete snapshots or structured dependency locations
+remains available when complete snapshots or dependency declaration locations
 are not reported.
 
 Set `conda-code.condaExecutable` when the primary conda is not available through
@@ -119,7 +126,7 @@ for installation details.
 ## Learn more
 
 - [Create environments from project files](https://jezdez.github.io/conda-code/how-to/create-from-files/)
-- [Use conda workspaces](https://jezdez.github.io/conda-code/how-to/use-workspaces/)
+- [Use conda-workspaces](https://jezdez.github.io/conda-code/how-to/use-workspaces/)
 - [Understand the provider model](https://jezdez.github.io/conda-code/explanation/provider-model/)
 - [Troubleshoot Conda Code](https://jezdez.github.io/conda-code/how-to/troubleshooting/)
 - [Read the changelog](https://jezdez.github.io/conda-code/changelog/)

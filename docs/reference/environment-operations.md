@@ -65,28 +65,46 @@ visible after discovery finds its prefix.
 Environments without Python remain visible with a warning. Conda Code reads
 Python version data from `conda-meta` rather than starting the interpreter.
 
+## SBOM export
+
+Run **Conda Code: Export Environment SBOM** from the Command Palette to export
+the selected Conda Code environment. The save dialog proposes
+`<environment>.cdx.json`, then Conda Code runs the routed conda executable
+against the exact installed prefix:
+
+```console
+conda export --prefix PREFIX --from-history --format cyclonedx-json-v1.7 --file FILE
+```
+
+This command requires
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
+the routed conda installation. Regular environments use their owning conda
+installation and export is refused when no usable owner executable is known.
+Workspace environments use the configured primary conda installation. Conda
+Code delegates CycloneDX generation and serialization to the plugin.
+
 ## Workspace environments
 
-| State                                | Discover          | Install through Create | Select                 | Delete         |
-| ------------------------------------ | ----------------- | ---------------------- | ---------------------- | -------------- |
-| Installed with Python                | Yes               | Already installed      | Declaring project only | Clean prefix   |
-| Installed without Python             | Yes, with warning | Already installed      | Declaring project only | Clean prefix   |
-| Declared but not installed           | No                | Yes                    | No                     | Not applicable |
-| Prefix claimed by multiple manifests | No                | No                     | No                     | No             |
+| State                                | Discover          | Install through Create | Select                        | Delete         |
+| ------------------------------------ | ----------------- | ---------------------- | ----------------------------- | -------------- |
+| Installed with Python                | Yes               | Already installed      | Declaring Python project only | Clean prefix   |
+| Installed without Python             | Yes, with warning | Already installed      | Declaring Python project only | Clean prefix   |
+| Declared but not installed           | No                | Yes                    | No                            | Not applicable |
+| Prefix claimed by multiple manifests | No                | No                     | No                            | No             |
 
 Deleting a workspace environment runs the workspace clean operation. It does
 not remove the declaration from the manifest.
 
 ## Creation behavior
 
-| Context                                                   | Quick Create                                            | Interactive Create                                          |
-| --------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| Existing conda workspace                                  | Install a declared environment                          | Choose an uninstalled declaration when needed               |
-| One recognized project input                              | Create a named environment from it                      | Choose the input, workspace, `.conda`, or named environment |
-| Several recognized project inputs                         | Fail                                                    | Choose an input, workspace, `.conda`, or named environment  |
-| Registered project without an input                       | Create `conda.toml` and install its default environment | Choose workspace, `.conda`, or named environment            |
-| Pixi project without an input when Pixi Code is installed | Refused                                                 | Project `.conda` or named environment                       |
-| Global or multiple projects                               | Create an available named environment                   | Create a named environment                                  |
+| Context                                                     | Quick Create                                            | Interactive Create                                          |
+| ----------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| Existing workspace                                          | Install a declared environment                          | Choose an uninstalled declaration when needed               |
+| One recognized project input                                | Create a named environment from it                      | Choose the input, workspace, `.conda`, or named environment |
+| Several recognized project inputs                           | Fail                                                    | Choose an input, workspace, `.conda`, or named environment  |
+| Registered project without an input                         | Create `conda.toml` and install its default environment | Choose workspace, `.conda`, or named environment            |
+| Pixi workspace without an input when Pixi Code is installed | Refused                                                 | Project `.conda` or named environment                       |
+| Global or multiple projects                                 | Create an available named environment                   | Create a named environment                                  |
 
 New regular environments created without a project input and new workspaces
 include Python unless the requested package list already contains a Python
@@ -105,9 +123,12 @@ configured default packages.
 
 ## Execution
 
-Regular environments advertise shell activation for Bash, Zsh, POSIX sh, Fish,
-PowerShell Core (`pwsh`), Git Bash, and Command Prompt. Other shells use the
-absolute Python interpreter.
+Regular environments with an identified owner and workspace environments
+advertise the same conda shell activation and deactivation commands for Bash,
+Zsh, POSIX sh, Fish, PowerShell Core (`pwsh`), Git Bash, and Command Prompt.
+Workspace activation targets the exact installed prefix through the configured
+conda installation used for workspace discovery.
 
-Workspace environments use the absolute interpreter directly. Conda Code does
-not advertise `conda workspace shell` because it opens a nested blocking shell.
+Direct execution still uses the environment's absolute Python interpreter.
+Conda Code does not advertise `conda workspace shell` because it opens a nested
+blocking shell.

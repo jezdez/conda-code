@@ -17,7 +17,7 @@ requires conda-lockfiles 0.2 or newer for the configured `conda` executable.
 
 Conda Code does not automatically treat `requirements.txt`, `spec.txt`, or
 `pixi.lock` as project creation inputs. `requirements.txt` normally describes
-pip packages in Python projects. Pixi projects stay with Pixi Code when it is
+pip packages in Python projects. Pixi workspaces stay with Pixi Code when it is
 installed, or with conda-workspaces otherwise.
 
 ## Selected file action
@@ -39,7 +39,7 @@ refused.
 
 Creation started through Python Environments follows this order:
 
-1. An existing discovered conda workspace offers its uninstalled environment
+1. An existing discovered workspace offers its uninstalled environment
    declarations.
 2. Quick Create uses the only recognized project input.
 3. Without an input, Quick Create creates a `conda.toml` workspace when
@@ -51,7 +51,7 @@ creation lists every recognized input and lets the user choose.
 
 Interactive project creation also offers:
 
-- a new conda workspace when permitted
+- a new workspace when permitted
 - a regular prefix at `<project>/.conda`
 - a regular named environment
 

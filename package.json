@@ -2,7 +2,7 @@
   "name": "conda-code",
   "displayName": "Conda Code",
   "description": "Conda environments, workspaces, packages, and tasks for Visual Studio Code.",
-  "version": "0.5.0",
+  "version": "0.8.0",
   "private": true,
   "publisher": "jezdez",
   "icon": "assets/conda-logo.png",
@@ -60,9 +60,49 @@
         "title": "Conda Code: Refresh Environments"
       },
       {
+        "command": "conda-code.exportEnvironmentSbom",
+        "title": "Conda Code: Export Environment SBOM"
+      },
+      {
+        "command": "conda-code.exportWorkspaceLockfileSbom",
+        "title": "Conda Code: Export Workspace Lockfile SBOM"
+      },
+      {
+        "command": "conda-code.previewWorkspaceImage",
+        "title": "Conda Code: Preview Workspace Image"
+      },
+      {
+        "command": "conda-code.buildWorkspaceImage",
+        "title": "Conda Code: Build Workspace Image"
+      },
+      {
         "command": "conda-code.runWorkspaceTask",
         "title": "Conda Code: Run Workspace Task",
         "icon": "$(play)"
+      },
+      {
+        "command": "conda-code.showWorkspaceLockStatus",
+        "title": "Conda Code: Show Workspace Lockfile Status"
+      },
+      {
+        "command": "conda-code.updateWorkspaceLockfile",
+        "title": "Conda Code: Update Workspace Lockfile"
+      },
+      {
+        "command": "conda-code.installLockedWorkspaceEnvironment",
+        "title": "Conda Code: Install Workspace Environment from Lockfile"
+      },
+      {
+        "command": "conda-code.createWorkspaceEnvironment",
+        "title": "Conda Code: Create Workspace Environment"
+      },
+      {
+        "command": "conda-code.importWorkspaceEnvironment",
+        "title": "Conda Code: Import environment.yml into Workspace"
+      },
+      {
+        "command": "conda-code.removeWorkspaceEnvironment",
+        "title": "Conda Code: Remove Workspace Environment Declaration"
       },
       {
         "command": "conda-code.createEnvironmentFromFile",
@@ -98,7 +138,7 @@
           },
           "file": {
             "type": "string",
-            "description": "Workspace-folder-relative path to the conda-workspaces manifest."
+            "description": "Workspace-folder-relative path to the workspace manifest."
           }
         },
         "when": "processExecutionSupported"
@@ -110,7 +150,7 @@
         "conda-code.condaExecutable": {
           "type": "string",
           "default": "",
-          "description": "Path to the primary conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, and PATH.",
+          "description": "Path or command name for the primary conda executable. When empty, Conda Code checks CONDA_EXE, python.condaPath, then conda on PATH. cx and cxz delegates are accepted from the first two sources but are not searched on PATH.",
           "scope": "machine-overridable"
         }
       }

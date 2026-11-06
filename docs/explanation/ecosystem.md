@@ -7,7 +7,7 @@ execution.
 ## conda-workspaces
 
 [conda-workspaces](https://conda-incubator.github.io/conda-workspaces/) defines
-project manifests, declared environments, features, tasks, and workspace
+workspace manifests, declared environments, features, tasks, and workspace
 commands. Conda Code provides VS Code integration for installed workspace
 environments and declared tasks.
 
@@ -30,9 +30,9 @@ omitting raw pip-only distributions.
 
 For workspace `[pypi-dependencies]`, conda-workspaces and conda-pypi solve and
 record those dependencies. Package changes started in Conda Code apply to the
-workspace manifest. New dependencies are added as conda dependencies. Existing
-direct PyPI dependencies can be removed when conda-workspaces reports their
-structured declaration locations.
+workspace manifest. New dependencies are added as conda dependencies. An
+existing direct PyPI dependency can be removed when its installed name still
+matches the declaration name, but it cannot be updated.
 
 ## conda-lockfiles
 
@@ -41,12 +41,28 @@ additional exact environment formats with `conda`. When it is installed, Conda
 Code can pass project-root `conda-lock.yml` and `conda-lock.yaml` files to
 `conda create`.
 
-The conda-lockfiles plugin also supports `pixi.lock`. Conda Code does not offer that file
-as a standalone environment input. Pixi projects stay with Pixi Code when it is
-installed, or with conda-workspaces otherwise.
+The conda-lockfiles plugin also supports `pixi.lock`. Conda Code does not offer
+that file as a standalone environment input. Pixi workspaces stay with Pixi Code
+when it is installed, or with conda-workspaces otherwise.
 
 Conda Code does not parse or synchronize those files. It delegates the format
 to `conda` and manages the result as a regular named environment.
+
+## conda-sboms
+
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) adds CycloneDX
+JSON to `conda export`. Conda Code supplies the selected environment prefix and
+destination, then delegates generation and serialization to conda-sboms 0.3.0
+or newer. Regular environments use their owning conda installation and
+workspace environments use the configured primary installation.
+
+## conda-express
+
+[conda-express](https://github.com/jezdez/conda-express) supplies `cx` and `cxz`
+delegates that bootstrap and run conda. Conda Code accepts them from the
+`conda-code.condaExecutable` setting, `CONDA_EXE`, or `python.condaPath`. It
+does not search `PATH` for or install them, and their normal bootstrap behavior
+remains in effect.
 
 ## conda-global
 
@@ -82,15 +98,15 @@ with `conda exec --list` and `conda exec --clean`.
 ## Pixi Code
 
 [Pixi Code](https://marketplace.visualstudio.com/items?itemName=renan-r-santos.pixi-code)
-is the Python Environments provider for Pixi projects. It is closer to Conda
+is the Python Environments provider for Pixi workspaces. It is closer to Conda
 Code than a Python-only environment manager because Pixi also manages conda
-packages and project environments.
+packages and workspace environments.
 
 The extensions can be installed together. When Pixi Code is present, Conda
 Code leaves `pixi.toml`, `[tool.pixi]`, and `.pixi/envs` to Pixi Code while
-continuing to handle regular conda environments and `conda.toml` projects.
+continuing to handle regular conda environments and `conda.toml` workspaces.
 That rule also applies to task discovery. When Pixi Code is installed, Conda
-Code does not publish tasks from `pixi.toml` or a `pyproject.toml` project with
+Code does not publish tasks from `pixi.toml` or a `pyproject.toml` workspace with
 a `[tool.pixi]` table.
 
 ## Python Environments

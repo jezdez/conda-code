@@ -15,7 +15,7 @@ selection and workspace discovery require local files. Conda Code does not
 support virtual or untrusted workspaces because it executes local `conda`
 commands.
 
-## Conda workspaces
+## conda-workspaces
 
 | Component          | Requirement                                          |
 | ------------------ | ---------------------------------------------------- |
@@ -25,10 +25,24 @@ commands.
 
 Conda Code detects optional conda-workspaces capabilities from command output.
 A complete workspace snapshot makes discovery faster and allows dependencies to
-be added directly to a selected environment. Structured dependency locations
-also allow safe direct-dependency removal and conda dependency updates. The
-0.7-compatible discovery and package-add path remains available when those
-fields are absent.
+be added directly to a selected environment. Structured dependency declaration
+locations allow direct dependency removal and direct conda dependency updates.
+The 0.7-compatible discovery and single-feature package-add path remains
+available when those fields are absent.
+
+Creating, importing, and removing workspace environment declarations through
+the Command Palette requires conda-workspaces 0.9 or newer. Older supported
+versions remain available for discovery, installation, tasks, and compatible
+package operations.
+
+Workspace lockfile actions and workspace images require conda-workspaces 0.10
+or newer. For workspaces that target multiple platforms, use
+[conda-workspaces 0.11.1](https://github.com/conda-incubator/conda-workspaces/releases/tag/0.11.1)
+or newer. This release fixes lock regeneration after installation, which could
+write host-platform packages into another platform's lock records.
+
+Image builds also require Docker with Buildx and a running daemon. Image
+previews do not require Docker.
 
 ## Workspace PyPI dependencies
 
@@ -50,8 +64,9 @@ conda config --set channel_priority flexible
 
 See the [conda-pypi setup](https://conda.github.io/conda-pypi/quickstart/).
 
-Conda Code shows the resulting conda records. Its package changes target the
-workspace's conda dependencies.
+Conda Code shows the resulting conda records. A direct PyPI dependency can be
+removed when its installed name matches its declaration. PyPI dependency
+updates are not supported.
 
 ## conda-lock inputs
 
@@ -60,6 +75,18 @@ Project-root `conda-lock.yml` and `conda-lock.yaml` inputs require
 newer in the configured conda base environment. Follow the
 [conda-lockfiles installation instructions](https://conda.github.io/conda-lockfiles/#installation)
 using the channels configured for your conda distribution.
+
+## SBOM export
+
+**Conda Code: Export Environment SBOM** requires
+[conda-sboms](https://github.com/conda-incubator/conda-sboms) 0.3.0 or newer in
+the conda installation that owns the selected environment. Workspace
+environments use the configured primary conda installation.
+
+**Conda Code: Export Workspace Lockfile SBOM** requires conda-workspaces 0.9 or
+newer and conda-sboms 0.3.0 or newer in the configured primary conda
+installation. The workspace action reads exact package records from
+`conda.lock`, so it does not require an installed environment.
 
 (source-build)=
 

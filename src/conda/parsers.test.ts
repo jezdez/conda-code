@@ -8,6 +8,7 @@ import {
   parseCondaPackageVersions,
   parseWorkspaceEnvironmentInfo,
   parseWorkspaceEnvironments,
+  parseWorkspaceImagePreview,
   parseWorkspaceInfo,
   parseWorkspacePackages,
   parseWorkspaceQuickstartResult,
@@ -175,20 +176,25 @@ test('parseCondaMutationPrefix accepts current and legacy conda result shapes', 
   );
 });
 
-test('parseWorkspaceInfo reads only fields used by discovery', () => {
+test('parseWorkspaceInfo reads workspace identity and available features', () => {
   const info = parseWorkspaceInfo(
     JSON.stringify({
       manifest: '/work/conda.toml',
       name: 'demo',
+      features: ['docs', 'test'],
       version: 1,
       channels: 'ignored',
-      lockfile_status: null,
+      lockfile_status: 'out-of-date',
+      lockfile_reason: 'manifest dependencies changed',
     }),
   );
 
   assert.deepEqual(info, {
     manifest: '/work/conda.toml',
     name: 'demo',
+    features: ['docs', 'test'],
+    lockfileStatus: 'out-of-date',
+    lockfileReason: 'manifest dependencies changed',
   });
 });
 
@@ -215,7 +221,10 @@ test('parseWorkspaceEnvironmentInfo reads route and dependency fields', () => {
       conda_dependencies: { python: 'python >=3.12', numpy: 'numpy' },
       installed: 'ignored',
       channels: null,
-      pypi_dependencies: false,
+      pypi_dependencies: {
+        black: '>=25',
+        editable: { path: '.', editable: true },
+      },
     }),
   );
 
@@ -226,6 +235,7 @@ test('parseWorkspaceEnvironmentInfo reads route and dependency fields', () => {
       python: 'python >=3.12',
       numpy: 'numpy',
     },
+    pypiDependencies: ['black', 'editable'],
   });
 });
 
@@ -250,10 +260,12 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
       JSON.stringify({
         manifest: '/work/conda.toml',
         name: 'demo',
+        lockfile_status: 'up-to-date',
         environment_details: [
           {
             name: 'test',
             features: ['test'],
+            platforms: ['linux-64'],
             prefix: '/work/.conda/envs/test',
             installed: true,
             resolutions: [
@@ -261,6 +273,17 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
                 platform: 'linux-64',
                 subdir: 'linux-64',
                 conda_dependencies: {
+                  ruff: {
+                    spec: 'ruff',
+                    provenance: {
+                      table: '[workspace.dependencies]',
+                      location: {
+                        environment: null,
+                        feature: null,
+                        platform: null,
+                      },
+                    },
+                  },
                   python: {
                     spec: 'python >=3.12',
                     provenance: {
@@ -296,10 +319,12 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
     {
       manifest: '/work/conda.toml',
       name: 'demo',
+      lockfileStatus: 'up-to-date',
       environments: [
         {
           name: 'test',
           features: ['test'],
+          platforms: ['linux-64'],
           prefix: '/work/.conda/envs/test',
           installed: true,
           resolutions: [
@@ -307,6 +332,12 @@ test('parseWorkspaceSnapshot keeps packages and structured dependency provenance
               platform: 'linux-64',
               subdir: 'linux-64',
               dependencies: [
+                {
+                  name: 'ruff',
+                  pypi: false,
+                  table: '[workspace.dependencies]',
+                  location: {},
+                },
                 {
                   name: 'python',
                   pypi: false,
@@ -338,6 +369,7 @@ test('parseWorkspaceSnapshot accepts provenance without structured selectors', (
         {
           name: 'default',
           features: [],
+          platforms: ['linux-64'],
           prefix: '/work/.conda/envs/default',
           installed: true,
           resolutions: [
@@ -360,6 +392,34 @@ test('parseWorkspaceSnapshot accepts provenance without structured selectors', (
   );
 
   assert.equal(snapshot.environments[0]?.resolutions[0]?.dependencies[0]?.location, undefined);
+});
+
+test('parseWorkspaceImagePreview keeps the generated recipe and exact file list', () => {
+  assert.deepEqual(
+    parseWorkspaceImagePreview(
+      JSON.stringify({
+        success: true,
+        recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+        files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+        destination: { load: true },
+      }),
+    ),
+    {
+      recipe: 'FROM debian:bookworm-slim\nCMD ["python", "app.py"]\n',
+      files: ['conda.toml', 'src/app.py', 'data/file with spaces.txt'],
+    },
+  );
+});
+
+test('parseWorkspaceImagePreview rejects malformed preview fields', () => {
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: [], files: ['conda.toml'] })),
+    /recipe must be a string/,
+  );
+  assert.throws(
+    () => parseWorkspaceImagePreview(JSON.stringify({ recipe: 'FROM base', files: [3] })),
+    /files\[0\] must be a string/,
+  );
 });
 
 test('parseWorkspaceQuickstartResult reads only the created environment identity', () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
 
-import { CondaClient } from './conda';
+import { CondaClient, CondaCommandError } from './conda';
 import { type CommandResult, type CommandRunner, type RunCommandOptions } from './runner';
 
 interface RecordedCall {
@@ -55,7 +55,7 @@ function condaInfo(): object {
   };
 }
 
-test('regular conda reads use the configured executable and JSON contracts', async () => {
+test('regular conda reads use the configured executable and parse info and package JSON', async () => {
   const runner = new RecordingRunner((_executable, args) => {
     if (args[0] === 'info') {
       return success(condaInfo());
@@ -120,6 +120,36 @@ test('derived clients run through the owning conda executable', async () => {
       executable: '_conda',
       args: ['list', '--prefix', '/owner/envs/demo', '--json', '--no-pip'],
       options: { signal: undefined, maxOutputBytes: 2048 },
+    },
+  ]);
+});
+
+test('SBOM export delegates the exact prefix and destination to conda-sboms', async () => {
+  const runner = new RecordingRunner(() => success());
+  const client = new CondaClient({
+    runner,
+    condaExecutable: 'conda',
+  });
+
+  await client.exportEnvironmentSbom('/envs/a path', '/work/a path.cdx.json');
+
+  assert.deepEqual(runner.calls, [
+    {
+      executable: 'conda',
+      args: [
+        'export',
+        '--prefix',
+        '/envs/a path',
+        '--from-history',
+        '--format',
+        'cyclonedx-json-v1.7',
+        '--file',
+        '/work/a path.cdx.json',
+      ],
+      options: {
+        signal: undefined,
+        maxOutputBytes: 4 * 1024 * 1024,
+      },
     },
   ]);
 });
@@ -209,7 +239,7 @@ test('regular conda installs do not upgrade satisfied specs unless requested', a
   ]);
 });
 
-test('Conda clients reject non-conda executables before running a command', () => {
+test('Conda clients reject unsupported executables before running a command', () => {
   const runner = new RecordingRunner(() => success());
   for (const executable of [
     '/opt/tools/bin/solver',
@@ -295,6 +325,34 @@ test('regular conda failures use the structured JSON message', async () => {
       error.message.includes("'base' is a reserved environment name") &&
       !error.message.includes('unrelated warning'),
   );
+});
+
+test('regular conda failures retain structured JSON metadata', async () => {
+  const failure: CommandResult = {
+    exitCode: 1,
+    stdout: JSON.stringify({
+      exception_name: 'WorkspaceParseError',
+      error_message: 'Failed to parse workspace manifest',
+      message: 'Failed to parse workspace manifest\nCheck the file syntax and try again.',
+      path: '/work/project/conda.toml',
+      reason: 'Channel entries must be strings',
+    }),
+    stderr: '',
+  };
+  const client = new CondaClient({ runner: new RecordingRunner(() => failure) });
+
+  await assert.rejects(client.getInfo(), (error: unknown) => {
+    assert.ok(error instanceof CondaCommandError);
+    assert.equal(error.exitCode, 1);
+    assert.deepEqual(error.details, {
+      exception_name: 'WorkspaceParseError',
+      error_message: 'Failed to parse workspace manifest',
+      message: 'Failed to parse workspace manifest\nCheck the file syntax and try again.',
+      path: '/work/project/conda.toml',
+      reason: 'Channel entries must be strings',
+    });
+    return true;
+  });
 });
 
 test('regular conda mutations reject empty values before spawning', async () => {

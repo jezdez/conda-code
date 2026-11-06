@@ -19,13 +19,54 @@ import {
 
 import { requireValue } from './conda';
 import { isRunnableCondaExecutable } from './executable';
-import { type WorkspaceTask, CondaWorkspacesClient } from './workspaces';
+import {
+  type WorkspaceImageOptions,
+  type WorkspaceTask,
+  CondaWorkspacesClient,
+  workspaceImageArguments,
+} from './workspaces';
 import { normalizeEnvironmentPath } from './workspaceRouting';
 
 export const CONDA_WORKSPACE_TASK_TYPE = 'conda-workspace';
 
 const MANIFEST_NAMES = ['conda.toml', 'pixi.toml', 'pyproject.toml'] as const;
 const TASK_SOURCE = 'conda-workspaces';
+
+export type WorkspaceImageTaskOptions = WorkspaceImageOptions & {
+  readonly environment: string;
+  readonly platform: string;
+};
+
+export function createWorkspaceImageTask(
+  workspaces: CondaWorkspacesClient,
+  manifest: Uri,
+  options: WorkspaceImageTaskOptions,
+): Task {
+  const folder = workspace.getWorkspaceFolder(manifest);
+  const args = [
+    'workspace',
+    '--file',
+    manifest.fsPath,
+    ...workspaceImageArguments(options.environment, options.platform, options),
+  ];
+  const task = new Task(
+    {
+      type: 'conda-workspace-image',
+      executable: workspaces.executable,
+      args,
+      environment: options.environment,
+      platform: options.platform,
+      tag: options.tag,
+    },
+    folder ?? TaskScope.Workspace,
+    `Build ${options.tag}`,
+    TASK_SOURCE,
+    new ProcessExecution(workspaces.executable, args, { cwd: path.dirname(manifest.fsPath) }),
+    [],
+  );
+  task.detail = `Build ${options.environment} for ${options.platform}`;
+  return task;
+}
 
 export interface CondaWorkspaceTaskDefinition extends TaskDefinition {
   readonly type: typeof CONDA_WORKSPACE_TASK_TYPE;
@@ -89,7 +130,7 @@ export class CondaWorkspaceTaskProvider implements TaskProvider, Disposable {
   ) {
     this.condaExecutable = requireValue(condaExecutable, 'condaExecutable');
     if (!isRunnableCondaExecutable(this.condaExecutable)) {
-      throw new TypeError('condaExecutable must invoke conda directly');
+      throw new TypeError('condaExecutable must invoke conda, cx, or cxz');
     }
   }
 
@@ -326,21 +367,19 @@ export async function runWorkspaceTask(
       path.basename(manifest.fsPath).toLowerCase() as (typeof MANIFEST_NAMES)[number],
     )
   ) {
-    await window.showInformationMessage(
-      'Open a conda workspace manifest before running a workspace task.',
-    );
+    await window.showInformationMessage('Open a workspace manifest before running a task.');
     return;
   }
 
   const availableTasks = await provider.provideTasksForManifest(manifest);
   if (availableTasks === undefined) {
     await window.showInformationMessage(
-      'The active file is not a conda workspace manifest managed by Conda Code.',
+      'The active file is not a workspace manifest managed by Conda Code.',
     );
     return;
   }
   if (availableTasks.length === 0) {
-    await window.showInformationMessage('The active conda workspace declares no tasks.');
+    await window.showInformationMessage('The active workspace declares no tasks.');
     return;
   }
 
@@ -352,7 +391,7 @@ export async function runWorkspaceTask(
     })),
     {
       title: 'Run Workspace Task',
-      placeHolder: 'Select a task declared by conda-workspaces',
+      placeHolder: 'Select a task from the workspace',
       matchOnDescription: true,
     },
   );

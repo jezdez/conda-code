@@ -6,9 +6,34 @@ import test from 'node:test';
 
 import {
   condaExecutableCandidatePaths,
+  isCondaExecutable,
+  isRunnableCondaExecutable,
   locateCondaExecutablePath,
   resolveCondaExecutablePath,
 } from './executable';
+
+test('accepts only exact conda-express command names as runnable delegates', () => {
+  for (const executable of ['cx', 'CXZ', '/opt/tools/cx', '/opt/tools/cxz']) {
+    assert.equal(isRunnableCondaExecutable(executable, 'linux'), true);
+    assert.equal(isCondaExecutable(executable), false);
+  }
+  for (const executable of ['cx', 'CXZ', 'cx.exe', 'C:\\tools\\CXZ.EXE']) {
+    assert.equal(isRunnableCondaExecutable(executable, 'win32'), true);
+    assert.equal(isCondaExecutable(executable), false);
+  }
+  for (const executable of [
+    'cx-custom',
+    'cxz-offline',
+    '/opt/tools/cx.exe',
+    'C:\\tools\\cx',
+    'C:\\tools\\cx.bat',
+  ]) {
+    assert.equal(
+      isRunnableCondaExecutable(executable, executable.includes('\\') ? 'win32' : 'linux'),
+      false,
+    );
+  }
+});
 
 test('keeps the lexical PATH executable distinct from its symlink target', async (t) => {
   if (process.platform === 'win32') {

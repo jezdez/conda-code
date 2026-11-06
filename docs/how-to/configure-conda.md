@@ -17,6 +17,21 @@ On Windows, use the full path to `conda.exe`:
 }
 ```
 
+Conda Code also accepts
+[conda-express](https://github.com/jezdez/conda-express) delegates from this
+setting, `CONDA_EXE`, or `python.condaPath`. Use bare `cx` or `cxz` on any
+platform. On macOS and Linux, the executable path's basename must be exactly
+`cx` or `cxz`. On Windows, it must be exactly `cx.exe` or `cxz.exe`:
+
+```json
+{
+  "conda-code.condaExecutable": "C:\\Tools\\conda-express\\cxz.exe"
+}
+```
+
+Conda Code does not search `PATH` for or install these delegates. Invoking one
+follows conda-express's normal bootstrap behavior.
+
 When the setting is empty, Conda Code checks these sources in order:
 
 1. `CONDA_EXE`

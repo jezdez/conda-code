@@ -49,7 +49,7 @@ Check all of the following:
 - The manifest directory is registered as a Python project.
 - `conda workspace info --json` succeeds for the manifest.
 - The environment is installed.
-- The manifest is not a Pixi project ignored because Pixi Code is installed.
+- The manifest is not a Pixi workspace ignored because Pixi Code is installed.
 - No other workspace manifest reports the same prefix.
 
 Only installed workspace environments appear. Use **Python Envs: Create
@@ -63,11 +63,30 @@ reporting workspace, then refresh.
 
 ## Package changes are refused
 
-Conda Code enables workspace operations only when conda-workspaces reports the
-metadata needed to preserve the manifest. A complete snapshot is needed to add
-to a composed environment. Structured declaration locations are needed to
-remove a direct dependency or update a direct conda dependency. Transitive
-dependencies cannot be changed directly. See [](use-workspaces.md).
+Conda Code enables workspace changes only when conda-workspaces reports enough
+metadata to preserve the manifest:
+
+- Adding to a composed or zero-feature environment needs a complete snapshot.
+- Removal and update need the direct dependency's declaration location.
+- PyPI dependencies can be removed, but not updated.
+- Transitive dependencies remain read-only.
+- A PyPI package remains read-only when conda-pypi gave its installed conda
+  record a different name from the manifest declaration.
+
+The 0.7-compatible path can still add to an environment backed by exactly one
+feature. See [](use-workspaces.md).
+
+## SBOM export is refused or the format is missing
+
+Make sure the active editor scope selects an environment from the
+`jezdez.conda-code:conda` manager. A regular environment also needs a usable
+owner executable. Refresh Conda Code after correcting its conda installation.
+
+Install conda-sboms 0.3.0 or newer beside the executable that Conda Code routes
+for the selected environment, then confirm that the same executable lists
+`cyclonedx-json-v1.7` in its `export --help` output. Regular environments use
+their owning conda installation. Workspace environments use the configured
+primary conda installation.
 
 ## Quick Create reports multiple project inputs
 
@@ -75,8 +94,7 @@ The project root contains more than one recognized environment input. Run
 **Python Envs: Create Environment** and choose one, or remove the inputs that do
 not apply.
 
-An existing discovered conda workspace takes precedence and does not use these
-files.
+An existing discovered workspace takes precedence and does not use these files.
 
 ## Additional creation packages are refused
 

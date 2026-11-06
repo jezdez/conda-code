@@ -2,33 +2,75 @@
 
 ## Unreleased
 
-- Stop multi-command package mutations before the next write when provider
-  ownership, routing, or the owning conda executable changes
-- Extend the isolated VS Code smoke test to verify clean-shell activation,
-  debug interpreter selection, and external package metadata watcher events
-- Validate workspace mutation targets before changing packages, including
-  confirmation for legacy shared additions
-- Reconcile partial package failures and report removals to the package view
-- Reject stale package reads after ownership changes, invalidation, or disposal
-- Separate package-provider tests, reuse search JSON validation, and report
-  unit-test coverage in the platform CI matrix
-- Align the Python Environments API dependency and lockfile on version 1.4.0
-- Expose conda metadata watch targets and workspace direct dependency names
-- Add owner-aware regular package version lookup, conda install specifications,
-  and package-manager tool version reporting
-- Honor headless package operations without prompts or progress notifications,
-  rejecting changes that require shared workspace dependency confirmation
+- Use the public Python Environments 1.4 API for package metadata watch targets,
+  workspace direct dependency names, and package-manager version reporting
+- Look up regular package versions through the owning conda installation and
+  generate exact-version install specifications
+- Reject invalidated package reads, recheck ownership and routing before each
+  mutation, and refresh package data after partial failures
+- Report unit-test coverage and extend the isolated VS Code smoke test to cover
+  terminal activation, debug interpreter selection, and package watcher events
+
+## 0.8.0
+
+- Honor headless package requests without showing prompts or changing shared
+  workspace declarations that require confirmation
+- Create workspace environment declarations with selected features and import
+  `environment.yml` declarations through command-palette actions backed by
+  conda-workspaces 0.9 or newer. Removing a declaration deletes its lock records
+  and installed prefix after confirmation
+- Show workspace-wide lockfile status and its reported reason, update or repair
+  the lockfile explicitly, and install a selected environment with `--locked`.
+  Missing or stale locks stop installation without solving
+- Export CycloneDX SBOMs for declared workspace environments and platforms
+  directly from `conda.lock`, without installing an environment, with optional
+  reproducible output
+- Show conda-workspaces manifest validation failures in the Problems panel and
+  clear them when the manifest is corrected, removed, or no longer owned
+- Preview locked Linux workspace image recipes and included files without
+  Docker, then build to the local Docker image store or an OCI archive through
+  cancellable VS Code Tasks
+- Recommend conda-workspaces 0.11.1 or newer for multi-platform locking to avoid
+  incorrect platform records when regenerating a lock after installation
+
+## 0.7.0
+
+- Export selected Conda Code environments as CycloneDX 1.7 JSON through
+  conda-sboms 0.3.0 or newer, using the owning conda installation for regular
+  environments and the configured primary conda installation for workspaces
+- Accept `cx` and `cxz` conda-express delegates from the Conda Code setting,
+  `CONDA_EXE`, or `python.condaPath` without searching for them on `PATH`
+- Refuse workspace package changes when the project, manifest, or environment
+  ownership changes during the safety refresh
+- Keep **Find workspaces** from offering a lower-priority manifest when another
+  provider owns the higher-priority manifest in the same directory
+
+## 0.6.1
+
+- Rename **Find conda workspace projects** to **Find workspaces** and use
+  Pixi-aligned workspace terminology throughout the extension and documentation
+
+## 0.6.0
+
 - Use the complete conda-workspaces snapshot when available, reducing workspace
   environment discovery to one conda process and reusing its package records
 - Route new dependencies to the selected workspace environment when supported
-- Enable direct dependency removal and conda dependency updates when
-  conda-workspaces reports structured declaration locations, with confirmation
-  before changing shared declarations
-- Keep conda-workspaces 0.7 compatibility when the newer snapshot and
-  declaration metadata are unavailable
+- Remove direct workspace dependencies and update direct conda dependencies at
+  their reported declaration locations, with confirmation before changing a
+  shared declaration
+- Keep conda-workspaces 0.7 compatibility when complete snapshots or
+  declaration locations are unavailable
 - Refuse ambiguous zero-feature package additions with 0.7 metadata instead of
   changing a declaration an isolated environment may not inherit
-- Show VS Code progress notifications for package changes
+- Show a VS Code progress notification while package changes are applied
+- Prompt for one complete conda package specification when Python Environments
+  opens **Manage Packages** without an explicit package change
+- Expose conda shell activation and deactivation for workspace environments,
+  targeting each environment's exact installed prefix
+- Add **Find conda workspace projects** to the Python Environments project
+  creator flow, validating selected manifests before registration
+- Limit file and project refreshes to the affected registered workspaces while
+  retaining global environment reconciliation
 
 ## 0.5.0
 
